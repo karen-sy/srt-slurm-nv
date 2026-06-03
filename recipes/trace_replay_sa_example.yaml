@@ -32,7 +32,7 @@ resources:
   gpus_per_decode: 4
   gpus_per_node: 4
 slurm:
-  time_limit: "00:30:00"
+  time_limit: "00:17:30"
 backend:
   type: trtllm
   prefill_environment:
@@ -166,8 +166,8 @@ benchmark:
   # Branch has since advanced (tip 062a5de, 2026-06-02: weka_trace + server-metrics fixes) — bump if you want the latest.
   aiperf_package: "git+https://github.com/cquil11/aiperf.git@0f04eb61753858f93f8aef8a5b9f1ae6341b57d5"
   aiperf_args:
-    benchmark-duration: 1200
-    benchmark-grace-period: 60
+    benchmark-duration: 300 # 5min for dummy
+    benchmark-grace-period: 30
     request-timeout-seconds: 1200
     workers-max: 200
     record-processors: 8
