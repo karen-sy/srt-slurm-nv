@@ -40,7 +40,9 @@ class TraceReplaySARunner(AIPerfBenchmarkRunner):
         - benchmark.concurrencies: Concurrency levels to sweep
 
     Optional config fields:
-        - benchmark.num_dataset_entries: Number of entries to load (default: all)
+        - benchmark.num_dataset_entries: Cap on traces to load from the corpus
+          (min(value, total)). If unset, aiperf defaults to 100 (NOT the full
+          corpus) — set it >= the dataset's trace count to replay everything.
         - benchmark.ttft_threshold_ms: Goodput TTFT threshold (default: 2000)
         - benchmark.itl_threshold_ms: Goodput ITL threshold (default: 25)
         - benchmark.aiperf_package: aiperf install spec (pin to the fork branch
@@ -88,7 +90,7 @@ class TraceReplaySARunner(AIPerfBenchmarkRunner):
         if isinstance(concurrencies, list):
             concurrencies = ",".join(str(c) for c in concurrencies)
 
-        # num_dataset_entries is optional; pass "" to let aiperf use the full corpus
+        # num_dataset_entries is optional; pass "" to omit the flag (aiperf then defaults to 100)
         num_dataset_entries = "" if b.num_dataset_entries is None else str(b.num_dataset_entries)
 
         ttft_threshold = getattr(b, "ttft_threshold_ms", None) or 2000

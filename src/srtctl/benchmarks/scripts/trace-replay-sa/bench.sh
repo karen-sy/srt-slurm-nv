@@ -62,7 +62,9 @@ if [ -z "${PUBLIC_DATASET}" ]; then
     exit 1
 fi
 
-# Build dataset args: --num-dataset-entries is optional (omit to let aiperf use the full corpus)
+# Build dataset args. --num-dataset-entries caps how many traces are loaded from the corpus
+# (min(value, total)). It is optional, but if omitted aiperf defaults to 100 — NOT the full
+# corpus — so to replay an entire dataset you must pass a value >= its trace count.
 DATASET_ARGS=(--public-dataset "${PUBLIC_DATASET}")
 if [ -n "${NUM_DATASET_ENTRIES}" ]; then
     DATASET_ARGS+=(--num-dataset-entries "${NUM_DATASET_ENTRIES}")
@@ -95,7 +97,7 @@ echo "=============================================="
 echo "Endpoint: ${ENDPOINT}"
 echo "Model: ${MODEL_NAME}"
 echo "Public Dataset: ${PUBLIC_DATASET}"
-echo "Num Dataset Entries: ${NUM_DATASET_ENTRIES:-<all>}"
+echo "Num Dataset Entries: ${NUM_DATASET_ENTRIES:-<unset: aiperf default 100>}"
 echo "Concurrencies: ${CONCURRENCIES}"
 echo "TTFT Threshold: ${TTFT_THRESHOLD}ms"
 echo "ITL Threshold: ${ITL_THRESHOLD}ms"

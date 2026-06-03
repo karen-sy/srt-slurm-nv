@@ -580,7 +580,7 @@ class BenchmarkConfig:
     trace_file: str | None = None  # Path to trace JSONL file (container path, e.g., /traces/dataset.jsonl)
     # Trace replay (SA) benchmark fields (uses aiperf with --public-dataset, pulled from HuggingFace)
     public_dataset: str | None = None  # aiperf public-dataset name (e.g. "semianalysis_cc_traces_weka_no_subagents")
-    num_dataset_entries: int | None = None  # Number of dataset entries to load (default: full corpus)
+    num_dataset_entries: int | None = None  # Cap on traces loaded from corpus; if unset aiperf defaults to 100 (not all)
     custom_tokenizer: str | None = None  # Custom tokenizer class (e.g., "module.path.ClassName")
     use_chat_template: bool = True  # Pass --use-chat-template to benchmark (default: true)
     # aiperf pip install spec (e.g., "aiperf>=0.7.0", "aiperf @ git+https://...@commit")
