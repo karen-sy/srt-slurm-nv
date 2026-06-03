@@ -156,15 +156,15 @@ extra_mount:
 
 benchmark:
   type: trace-replay-sa
-  public_dataset: semianalysis_cc_traces_weka_no_subagents
-  num_dataset_entries: 98
+  public_dataset: semianalysis_cc_traces_weka_with_subagents_256k
+  num_dataset_entries: 470  # full corpus of the with-subagents 256k variant (470 traces)
   concurrencies: "24"
   ttft_threshold_ms: 5000
   itl_threshold_ms: 10
   # The SA public-dataset loaders only exist on the cquil11/aiperf fork (branch cjq/agentx-v0.3).
-  # Pinned to the exact commit verified locally (tip of cjq/agentx-v0.3 as of 2026-05-19).
-  # Branch has since advanced (tip 062a5de, 2026-06-02: weka_trace + server-metrics fixes) — bump if you want the latest.
-  aiperf_package: "git+https://github.com/cquil11/aiperf.git@0f04eb61753858f93f8aef8a5b9f1ae6341b57d5"
+  # Pinned to the branch tip (2026-06-02): adds the with_subagents / 256k loaders plus
+  # weka_trace reconstruction + server-metrics fixes.
+  aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
     benchmark-duration: 300 # 5min for dummy
     benchmark-grace-period: 30
