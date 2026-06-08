@@ -104,27 +104,48 @@ def extract_condp_policy(config: dict) -> str:
 
 
 def extract_max_num_tokens(config: dict) -> str:
-    """Extract max_num_tokens from trtllm_config.
+    """Extract max_num_tokens from trtllm_config or max-num-batched-tokens from vllm_config.
     
     Tries decode first, then prefill, then aggregated.
     Returns the value as string, or "N/A" if not found.
     """
-    trtllm_config = config.get("backend", {}).get("trtllm_config", {})
+    backend = config.get("backend", {})
     
-    # Try decode first (most relevant for throughput)
-    decode_config = trtllm_config.get("decode") or {}
-    if decode_config.get("max_num_tokens"):
-        return str(decode_config["max_num_tokens"])
+    # Try vllm_config first (max-num-batched-tokens)
+    vllm_config = backend.get("vllm_config", {})
+    if vllm_config:
+        # Try decode first (most relevant for throughput)
+        decode_config = vllm_config.get("decode") or {}
+        if decode_config.get("max-num-batched-tokens"):
+            return str(decode_config["max-num-batched-tokens"])
+        
+        # Try prefill
+        prefill_config = vllm_config.get("prefill") or {}
+        if prefill_config.get("max-num-batched-tokens"):
+            return str(prefill_config["max-num-batched-tokens"])
+        
+        # Try aggregated
+        agg_config = vllm_config.get("aggregated") or {}
+        if agg_config.get("max-num-batched-tokens"):
+            return str(agg_config["max-num-batched-tokens"])
     
-    # Try prefill
-    prefill_config = trtllm_config.get("prefill") or {}
-    if prefill_config.get("max_num_tokens"):
-        return str(prefill_config["max_num_tokens"])
-    
-    # Try aggregated
-    agg_config = trtllm_config.get("aggregated") or {}
-    if agg_config.get("max_num_tokens"):
-        return str(agg_config["max_num_tokens"])
+    # Fall back to trtllm_config (max_num_tokens)
+    trtllm_config = backend.get("trtllm_config", {})
+    if trtllm_config:
+        # Try decode first (most relevant for throughput)
+        decode_config = trtllm_config.get("decode") or {}
+        if decode_config.get("max_num_tokens"):
+            return str(decode_config["max_num_tokens"])
+        
+        # Try prefill
+        prefill_config = trtllm_config.get("prefill") or {}
+        if prefill_config.get("max_num_tokens"):
+            return str(prefill_config["max_num_tokens"])
+        
+        # Try aggregated
+        agg_config = trtllm_config.get("aggregated") or {}
+        if agg_config.get("max_num_tokens"):
+            return str(agg_config["max_num_tokens"])
     
     return "N/A"
 
@@ -377,50 +398,36 @@ def calculate_kv_workspace_gib(
     return total_cache_mb / 1024
 
 
-def check_runtime_errors(job_dir: Path) -> str:
-    """Check worker logs for runtime errors.
+def check_runtime_errors(job_dir: Path, aiperf_data: Dict | None = None) -> str:
+    """Check for runtime errors using aiperf error_summary field.
+    
+    Args:
+        job_dir: Path to the job directory (used as fallback)
+        aiperf_data: Parsed aiperf JSON data (optional, will load if not provided)
     
     Returns:
-        "v" if no errors found, otherwise "[ErrorType (details)]"
+        "v" if no errors found, otherwise "[error details]"
     """
-    import re
-    import subprocess
+    # Try to get error_summary from aiperf data
+    if aiperf_data is None:
+        json_path = find_srtslurm_aiperf_json(job_dir)
+        if json_path:
+            try:
+                with open(json_path) as f:
+                    aiperf_data = json.load(f)
+            except Exception:
+                pass
     
-    logs_dir = job_dir / "logs"
-    if not logs_dir.exists():
+    if aiperf_data:
+        error_summary = aiperf_data.get("error_summary", [])
+        if error_summary:
+            # Return first error (truncated if too long)
+            first_error = str(error_summary[0])[:80]
+            return f"[{first_error}]"
         return "v"
     
-    # Search for common errors in .out files
-    error_patterns = [
-        (r"AssertionError: total_num_tokens \((\d+)\) should be less than or equal to max_num_tokens \((\d+)\)",
-         lambda m: f"[AssertionError (total_num_tokens {m.group(1)} > max_num_tokens {m.group(2)})]"),
-        (r"AssertionError: (.{1,50})",
-         lambda m: f"[AssertionError ({m.group(1).strip()})]"),
-        (r"torch\.AcceleratorError: CUDA error: (.{1,50})",
-         lambda m: f"[CUDA error ({m.group(1).strip()})]"),
-        (r"RuntimeError: (.{1,50})",
-         lambda m: f"[RuntimeError ({m.group(1).strip()})]"),
-        (r"OutOfMemoryError|out of memory|OOM",
-         lambda m: "[OOM]"),
-    ]
-    
-    try:
-        # Read all .out files
-        for out_file in logs_dir.glob("*.out"):
-            if out_file.name == "benchmark.out":
-                continue
-            try:
-                content = out_file.read_text(errors="ignore")
-                for pattern, formatter in error_patterns:
-                    match = re.search(pattern, content)
-                    if match:
-                        return formatter(match)
-            except Exception:
-                continue
-    except Exception:
-        pass
-    
-    return "v"
+    # No aiperf data available
+    return "[no aiperf data]"
 
 
 def row_from_srtslurm_job(
@@ -513,8 +520,8 @@ def row_from_srtslurm_job(
     error_count_int = int(error_count) if error_count else 0
     errors_combined = f"{error_count_int} [{error_rate_pct:.1f}%]"
 
-    # Check for runtime errors in worker logs
-    runtime_error = check_runtime_errors(job_dir)
+    # Check for runtime errors using aiperf error_summary
+    runtime_error = check_runtime_errors(job_dir, aiperf_data=data)
 
     return {
         "dataset": info["dataset"],

@@ -1,6 +1,6 @@
-# Rate-matched disagg: 2P(TP4) + 3D(TP2), mixed TP (14 GPUs, 5 nodes)
-# P:D ratio = 1:1.5, ideal = 1:1.45 — Very Good match
-name: disagg_offload_tep4x2p_tep2x3d
+# Rate-matched disagg: 2P + 3D, all TP4 (20 GPUs, 5 nodes)
+# P:D ratio = 1:1.5, ideal = 1:1.37 — Good match
+name: disagg_condp_offload_tep4x2p_tep4x3d
 
 identity:
   model:
@@ -22,7 +22,7 @@ resources:
   gpus_per_prefill: 4
   decode_nodes: 3
   decode_workers: 3
-  gpus_per_decode: 2
+  gpus_per_decode: 4
 
 slurm:
   time_limit: "00:45:00"
@@ -47,7 +47,7 @@ backend:
     DYN_TOOL_CALL_PARSER: hermes
     DYN_REASONING_PARSER: qwen3
   decode_environment:
-    OTEL_SERVICE_NAME: "dynamo-decode-tep2x3-kv"
+    OTEL_SERVICE_NAME: "dynamo-decode-tep4x3-kv"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
     # NIXL side channel config (required for NixlConnector handshake)
@@ -77,12 +77,12 @@ backend:
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"
     decode:
-      tensor-parallel-size: 2
+      tensor-parallel-size: 4
       enable-expert-parallel: true
       gpu-memory-utilization: 0.85
       max-model-len: 262144
       block-size: 64
-      max-num-batched-tokens: 256
+      max-num-batched-tokens: 4352  # 4096 cutoff + buffer
       enable-prefix-caching: true
       kv-cache-dtype: fp8
       # cpu_bytes_to_use = 120 GB/rank × 1073741824 = 128849018880 bytes (per-rank, NOT total)
@@ -103,7 +103,7 @@ frontend:
     router-conditional-prefill-eff-isl-ratio-threshold: 0.8
   enable_multiple_frontends: false
   env:
-    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-tep4x2p-tep2x3d"
+    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-tep4x2p-tep4x3d"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
 
