@@ -6,16 +6,15 @@ identity:
     repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
   frameworks:
     dynamo: 1.2.0
-    vllm: 0.20.1
+    vllm: 0.21.0+cu129
 
 model:
   path: qwen3-235b-a22b-instruct-2507-nvfp4
-  container: dyn-120-vllm-0201-release
+  container: dyn-121-vllm-0210-condp-v1-isl
   precision: fp4
 
 resources:
   gpu_type: gb200
-  # Disaggregated: separate prefill and decode nodes
   prefill_nodes: 1
   prefill_workers: 1
   gpus_per_prefill: 2

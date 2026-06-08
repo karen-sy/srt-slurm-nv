@@ -7,11 +7,11 @@ identity:
     repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
   frameworks:
     dynamo: 1.2.0
-    vllm: 0.20.1
+    vllm: 0.21.0+cu129
 
 model:
   path: qwen3-235b-a22b-instruct-2507-nvfp4
-  container: dyn-120-vllm-0201-release
+  container: dyn-121-vllm-0210-condp-v1-isl
   precision: fp4
 
 resources:
@@ -29,6 +29,9 @@ slurm:
 
 backend:
   type: vllm
+  kv_events_config:
+    prefill: true
+    decode: true
   prefill_environment:
     OTEL_SERVICE_NAME: "dynamo-prefill-tep4x2-kv"
     OTEL_EXPORT_ENABLED: "true"
@@ -70,6 +73,7 @@ backend:
       # cpu_bytes_to_use = 120 GB/rank × 1073741824 = 128849018880 bytes (per-rank, NOT total)
       kv-transfer-config: '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_both"},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":128849018880}}]}}'
       disaggregation-mode: prefill
+      enable-conditional-disagg: true
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"
     decode:
@@ -84,6 +88,7 @@ backend:
       # cpu_bytes_to_use = 120 GB/rank × 1073741824 = 128849018880 bytes (per-rank, NOT total)
       kv-transfer-config: '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_both"},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":128849018880}}]}}'
       disaggregation-mode: decode
+      enable-conditional-disagg: true
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"
 
@@ -92,6 +97,10 @@ frontend:
   args:
     router-mode: kv
     router-reset-states: true
+    router-conditional-prefill: true
+    router-conditional-prefill-policy: isl_bounding
+    router-conditional-prefill-eff-isl-threshold: 4096
+    router-conditional-prefill-eff-isl-ratio-threshold: 0.8
   enable_multiple_frontends: false
   env:
     OTEL_SERVICE_NAME: "dynamo-frontend-disagg-tep4x2p-tep2x3d"
@@ -114,7 +123,7 @@ observability:
   otel_endpoint: "http://10.57.209.4:4317"
 
 sweep:
-  concurrency: [12, 36, 60, 80, 96]
+  concurrency: [36, 60, 80, 96]
 
 extra_mount:
   - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"
