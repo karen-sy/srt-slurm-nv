@@ -73,9 +73,9 @@ _TSV_COLUMNS_TAIL = [
     "kv_total_blocks (dynamo_component_total_blocks)",
     "kv_blocksize (dynamo_frontend_model_kv_cache_block_size)",
     "kv_total_workspace_GiB (calculated)",
-    "kv_util_max (trtllm_kv_cache_utilization)",
-    "kv_reused_blocks (trtllm_kv_cache_reused_blocks)",
-    "kv_missed_blocks (trtllm_kv_cache_missed_blocks)",
+    "kv_util_max",
+    "kv_reused_blocks",
+    "kv_missed_blocks",
     "kv_hit_rate (calculated)",
 ]
 
@@ -182,9 +182,14 @@ def extract_srtslurm_info(job_dir: Path) -> Dict[str, object]:
                 if config_name:
                     info["config_name"] = config_name
                 info["concurrency"] = config.get("benchmark", {}).get("concurrencies")
+                # Extract dataset from trace_file path or public_dataset
                 trace_file = config.get("benchmark", {}).get("trace_file", "")
                 if trace_file:
                     info["dataset"] = Path(trace_file).parent.name
+                else:
+                    public_dataset = config.get("benchmark", {}).get("public_dataset", "")
+                    if public_dataset:
+                        info["dataset"] = public_dataset
                 # Extract conditional prefill policy and max_num_tokens
                 info["condp_policy"] = extract_condp_policy(config)
                 info["max_num_tokens"] = extract_max_num_tokens(config)
@@ -265,14 +270,18 @@ def get_metric_stat_aggregated(metrics: dict, metric_name: str, stat: str, agg: 
     return values[0]
 
 
-def extract_kv_cache_metrics(json_path: Path) -> Dict[str, object]:
+def extract_kv_cache_metrics(json_path: Path, backend: str = "trtllm") -> Dict[str, object]:
     """Extract KV cache metrics from server_metrics_export.json.
+    
+    Args:
+        json_path: Path to server_metrics_export.json
+        backend: "trtllm" or "vllm" - determines which metrics to scrape
     
     Aggregates across all workers:
     - total_blocks: average across workers (capacity is similar per worker)
     - util_max: max across all workers (worst case utilization)
     - reused/missed blocks: sum across workers (total cache activity)
-    - hit_rate: calculated from summed reused/(reused+missed)
+    - hit_rate: calculated from summed reused/(reused+missed) or direct metric
     """
     result = {
         "kv_total_blocks": None,
@@ -302,26 +311,49 @@ def extract_kv_cache_metrics(json_path: Path) -> Dict[str, object]:
             metrics, "dynamo_frontend_model_kv_cache_block_size", "avg", agg="first"
         )
         
-        # Max utilization - take max across all workers
-        result["kv_util_max"] = get_metric_stat_aggregated(
-            metrics, "trtllm_kv_cache_utilization", "max", agg="max"
-        )
+        if backend == "trtllm":
+            # TRT-LLM specific metrics
+            result["kv_util_max"] = get_metric_stat_aggregated(
+                metrics, "trtllm_kv_cache_utilization", "max", agg="max"
+            )
+            result["kv_reused_blocks"] = get_metric_stat_aggregated(
+                metrics, "trtllm_kv_cache_reused_blocks", "total", agg="sum"
+            )
+            result["kv_missed_blocks"] = get_metric_stat_aggregated(
+                metrics, "trtllm_kv_cache_missed_blocks", "total", agg="sum"
+            )
+            # Calculate hit rate from summed reused / (reused + missed)
+            reused = result["kv_reused_blocks"]
+            missed = result["kv_missed_blocks"]
+            if reused is not None and missed is not None:
+                total = reused + missed
+                if total > 0:
+                    result["kv_hit_rate"] = reused / total
         
-        # Cumulative counters - sum across all workers
-        result["kv_reused_blocks"] = get_metric_stat_aggregated(
-            metrics, "trtllm_kv_cache_reused_blocks", "total", agg="sum"
-        )
-        result["kv_missed_blocks"] = get_metric_stat_aggregated(
-            metrics, "trtllm_kv_cache_missed_blocks", "total", agg="sum"
-        )
-        
-        # Calculate hit rate from summed reused / (reused + missed)
-        reused = result["kv_reused_blocks"]
-        missed = result["kv_missed_blocks"]
-        if reused is not None and missed is not None:
-            total = reused + missed
-            if total > 0:
-                result["kv_hit_rate"] = reused / total
+        elif backend == "vllm":
+            # vLLM specific metrics
+            result["kv_util_max"] = get_metric_stat_aggregated(
+                metrics, "vllm:kv_cache_usage_perc", "max", agg="max"
+            )
+            # vLLM uses prefix cache hits/queries
+            hits = get_metric_stat_aggregated(
+                metrics, "vllm:prefix_cache_hits", "total", agg="sum"
+            )
+            queries = get_metric_stat_aggregated(
+                metrics, "vllm:prefix_cache_queries", "total", agg="sum"
+            )
+            result["kv_reused_blocks"] = hits
+            # Calculate misses = queries - hits
+            if hits is not None and queries is not None:
+                result["kv_missed_blocks"] = queries - hits
+            # Calculate hit rate: hits / queries
+            if hits is not None and queries is not None and queries > 0:
+                result["kv_hit_rate"] = hits / queries
+            # Fallback to dynamo router hit rate if available
+            if result["kv_hit_rate"] is None:
+                result["kv_hit_rate"] = get_metric_stat_aggregated(
+                    metrics, "dynamo_component_router_kv_hit_rate", "avg", agg="avg"
+                )
     except Exception:
         pass
     
@@ -391,8 +423,15 @@ def check_runtime_errors(job_dir: Path) -> str:
     return "v"
 
 
-def row_from_srtslurm_job(job_dir: Path, cache_mb_per_1k: float = 34.31) -> Dict[str, object] | None:
+def row_from_srtslurm_job(
+    job_dir: Path, cache_mb_per_1k: float = 34.31, backend: str = "trtllm"
+) -> Dict[str, object] | None:
     """Extract a row of stats from a srtslurm job directory.
+    
+    Args:
+        job_dir: Path to the job directory
+        cache_mb_per_1k: KV cache size in MB per 1K sequence length
+        backend: "trtllm" or "vllm" - determines which metrics to scrape
     
     If no profile_export_aiperf.json is found (failed run), returns a partial row
     with config info and runtime error instead of None.
@@ -427,15 +466,15 @@ def row_from_srtslurm_job(job_dir: Path, cache_mb_per_1k: float = 34.31) -> Dict
             "kv_total_blocks (dynamo_component_total_blocks)": None,
             "kv_blocksize (dynamo_frontend_model_kv_cache_block_size)": None,
             "kv_total_workspace_GiB (calculated)": None,
-            "kv_util_max (trtllm_kv_cache_utilization)": None,
-            "kv_reused_blocks (trtllm_kv_cache_reused_blocks)": None,
-            "kv_missed_blocks (trtllm_kv_cache_missed_blocks)": None,
+            "kv_util_max": None,
+            "kv_reused_blocks": None,
+            "kv_missed_blocks": None,
             "kv_hit_rate (calculated)": None,
         }
     
     # Extract KV cache metrics from server_metrics_export.json
     server_metrics_path = find_server_metrics_json(job_dir)
-    kv_metrics = extract_kv_cache_metrics(server_metrics_path)
+    kv_metrics = extract_kv_cache_metrics(server_metrics_path, backend=backend)
     
     with json_path.open() as f:
         data = json.load(f)
@@ -503,9 +542,9 @@ def row_from_srtslurm_job(job_dir: Path, cache_mb_per_1k: float = 34.31) -> Dict
         "kv_total_workspace_GiB (calculated)": calculate_kv_workspace_gib(
             kv_metrics["kv_total_blocks"], kv_metrics["kv_blocksize"], cache_mb_per_1k
         ),
-        "kv_util_max (trtllm_kv_cache_utilization)": kv_metrics["kv_util_max"],
-        "kv_reused_blocks (trtllm_kv_cache_reused_blocks)": kv_metrics["kv_reused_blocks"],
-        "kv_missed_blocks (trtllm_kv_cache_missed_blocks)": kv_metrics["kv_missed_blocks"],
+        "kv_util_max": kv_metrics["kv_util_max"],
+        "kv_reused_blocks": kv_metrics["kv_reused_blocks"],
+        "kv_missed_blocks": kv_metrics["kv_missed_blocks"],
         "kv_hit_rate (calculated)": kv_metrics["kv_hit_rate"],
     }
 
@@ -805,6 +844,22 @@ def main() -> int:
         default=34.31,
         help="KV cache size in MB per 1K sequence length (default: 34.31 for Kimi-K2)"
     )
+    # Backend selection (mutually exclusive, required)
+    backend_group = parser.add_mutually_exclusive_group(required=True)
+    backend_group.add_argument(
+        "--trtllm",
+        action="store_const",
+        const="trtllm",
+        dest="backend",
+        help="Use TensorRT-LLM metrics (trtllm_kv_cache_*)"
+    )
+    backend_group.add_argument(
+        "--vllm",
+        action="store_const",
+        const="vllm",
+        dest="backend",
+        help="Use vLLM metrics (vllm:kv_cache_*, vllm:prefix_cache_*)"
+    )
     args = parser.parse_args()
 
     # Determine delimiter
@@ -822,7 +877,9 @@ def main() -> int:
         for job_id in args.job_ids:
             job_dir = find_srtslurm_job_dir(job_id, outputs_dir)
             if job_dir:
-                row = row_from_srtslurm_job(job_dir, cache_mb_per_1k=args.cache_mb_per_1k)
+                row = row_from_srtslurm_job(
+                    job_dir, cache_mb_per_1k=args.cache_mb_per_1k, backend=args.backend
+                )
                 if row:
                     srtslurm_rows.append(row)
             else:
