@@ -5,8 +5,7 @@
 # Higher ISL (~64k) makes the conv-state tail-copy offset exceed 2^31 more aggressively
 # than the chat trace, so this is the more sensitive crash trigger per the issue report.
 #
-# Prerequisites: same as chat_mtp_spec1.yaml
-#   export NEMOTRON_ULTRA_CONTAINER=/path/to/your-built-image.sqsh
+# Prerequisites: none — model and container aliases are in srtslurm.yaml
 name: nemotron-fi-agentic-mtp-spec1
 
 identity:
@@ -17,7 +16,7 @@ identity:
 
 model:
   path: nemotron-3-ultra-550b-a55b-nvfp4
-  container: ${NEMOTRON_ULTRA_CONTAINER}
+  container: dyn-130-nemotron-triage
   precision: nvfp4
 
 resources:

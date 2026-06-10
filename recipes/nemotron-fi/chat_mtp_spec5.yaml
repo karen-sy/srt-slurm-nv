@@ -17,7 +17,7 @@ identity:
 
 model:
   path: nemotron-3-ultra-550b-a55b-nvfp4
-  container: ${NEMOTRON_ULTRA_CONTAINER}
+  container: dyn-130-nemotron-triage
   precision: nvfp4
 
 resources:

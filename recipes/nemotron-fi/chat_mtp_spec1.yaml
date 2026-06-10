@@ -5,8 +5,7 @@
 # Reproduces cudaErrorIllegalAddress in ds_conv_tail_copy_kernel under sustained
 # agentic/chat load with prefix caching + DS layout + MTP.
 #
-# Prerequisites:
-#   export NEMOTRON_ULTRA_CONTAINER=/path/to/your-built-image.sqsh
+# Prerequisites: none — model and container aliases are in srtslurm.yaml
 #
 # Submit:
 #   cd ~/srt-slurm
@@ -23,7 +22,7 @@ identity:
 
 model:
   path: nemotron-3-ultra-550b-a55b-nvfp4
-  container: ${NEMOTRON_ULTRA_CONTAINER}
+  container: dyn-130-nemotron-triage
   precision: nvfp4
 
 resources:
