@@ -16,7 +16,7 @@ identity:
     dynamo: "1.3.0"
 
 model:
-  path: ${NEMOTRON_ULTRA_MODEL_PATH}
+  path: nemotron-3-ultra-550b-a55b-nvfp4
   container: ${NEMOTRON_ULTRA_CONTAINER}
   precision: nvfp4
 

@@ -7,10 +7,6 @@
 #
 # Prerequisites:
 #   export NEMOTRON_ULTRA_CONTAINER=/path/to/your-built-image.sqsh
-#   export NEMOTRON_ULTRA_MODEL_PATH=/path/to/patched/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4
-#
-# The model dir must contain ultra_v3_reasoning_parser.py (patched model view,
-# same as what the K8s model-download Job produces).
 #
 # Submit:
 #   cd ~/srt-slurm
@@ -26,7 +22,7 @@ identity:
     dynamo: "1.3.0"
 
 model:
-  path: ${NEMOTRON_ULTRA_MODEL_PATH}
+  path: nemotron-3-ultra-550b-a55b-nvfp4
   container: ${NEMOTRON_ULTRA_CONTAINER}
   precision: nvfp4
 
