@@ -96,7 +96,7 @@ frontend:
     router-mode: kv
     router-reset-states: true
     router-conditional-prefill: true
-    router-conditional-prefill-policy: isl_bounding
+    router-conditional-prefill-policy: isl_or_load
     router-conditional-prefill-eff-isl-threshold: 4096
     router-conditional-prefill-eff-isl-ratio-threshold: 0.8
     router-conditional-prefill-busy-threshold: 16
