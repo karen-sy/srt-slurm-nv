@@ -48,20 +48,32 @@ infra:
 backend:
   type: vllm
   connector: null       # agg mode — no P/D KV transfer connector needed
-  kv_events_config:
-    aggregated: true    # publish ZMQ KV events so the frontend can do KV-aware routing
+  # kv_events_config omitted intentionally: K8s deploy.yaml does NOT set --kv-events-config
+  # on the worker either; the DGD operator wires it automatically there. In srt-slurm the
+  # frontend uses round-trip health checks only — KV routing fidelity is not required to
+  # reproduce the kernel crash, which is purely a function of the vLLM worker.
   aggregated_environment:
-    VLLM_DISABLED_KERNELS: FlashInferFP8ScaledMMLinearKernel
-    VLLM_SSM_CONV_STATE_LAYOUT: DS      # required to trigger the ds_conv_tail_copy_kernel path
-    VLLM_ALLOW_CHUNKED_LOCAL_ATTN_WITH_HYBRID_KV_CACHE: "1"
-    DYN_VLLM_APPEND_PREFILL_OUTPUT_TOKENS: "0"
+    # --- exact copy of spec.env from agg-b200-chat-mtp/deploy.yaml ---
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    HOME: /tmp
+    HF_MODULES_CACHE: /tmp/hf_modules
+    XDG_CACHE_HOME: /tmp/cache
+    TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
+    TRITON_CACHE_DIR: /tmp/triton
+    VLLM_CACHE_ROOT: /tmp/vllm
+    PYTHONHASHSEED: "0"
+    VLLM_LOGGING_LEVEL: INFO
     VLLM_WORKER_MULTIPROC_METHOD: spawn
     VLLM_ALLREDUCE_USE_SYMM_MEM: "0"
+    VLLM_DISABLED_KERNELS: FlashInferFP8ScaledMMLinearKernel
+    VLLM_SSM_CONV_STATE_LAYOUT: DS
+    VLLM_ALLOW_CHUNKED_LOCAL_ATTN_WITH_HYBRID_KV_CACHE: "1"
+    DYN_VLLM_APPEND_PREFILL_OUTPUT_TOKENS: "0"
     NCCL_IB_DISABLE: "1"
     NCCL_CUMEM_ENABLE: "1"
     NCCL_NVLS_ENABLE: "1"
-    PYTHONHASHSEED: "0"
-    VLLM_LOGGING_LEVEL: INFO
+    DYN_LOG: "info,dynamo_kv_router=debug,dynamo_llm::kv_router=debug"
   vllm_config:
     aggregated:
       served-model-name: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4
