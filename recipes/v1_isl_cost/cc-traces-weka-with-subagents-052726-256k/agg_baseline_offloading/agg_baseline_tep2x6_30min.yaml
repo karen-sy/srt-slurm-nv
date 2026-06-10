@@ -6,11 +6,11 @@ identity:
     repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
   frameworks:
     dynamo: 1.2.0
-    vllm: 0.20.1
+    vllm: 0.21.0+cu129
 
 model:
   path: qwen3-235b-a22b-instruct-2507-nvfp4
-  container: dyn-120-vllm-0201-release
+  container: dyn-121-vllm-0210-condp-v1-isl
   precision: fp4
 
 resources:
@@ -25,6 +25,8 @@ slurm:
 
 backend:
   type: vllm
+  kv_events_config:
+    aggregated: true
   aggregated_environment:
     OTEL_SERVICE_NAME: "dynamo-agg-tep4x6-kv-conc{concurrency}"
     # OpenTelemetry tracing (vLLM uses env vars, not engine flags)
@@ -80,7 +82,7 @@ observability:
   otel_endpoint: "http://10.57.209.4:4317"
 
 sweep:
-  concurrency: [12, 36, 60, 80, 96]
+  concurrency: [36, 60, 80, 96]
 
 extra_mount:
   - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"

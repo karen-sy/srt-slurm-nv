@@ -82,6 +82,7 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
     config_path = find_config_yaml(job_dir)
     gpus = None
     concurrency = None
+    category = None
     config_name = job_dir.name.split("_", 1)[1] if "_" in job_dir.name else None
     
     if config_path:
@@ -107,7 +108,19 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
                 gpus = (prefill_workers * gpus_per_prefill) + (decode_workers * gpus_per_decode)
             else:
                 gpus = resources.get("gpus")
-            
+
+            # Categorize the run from config fields (not name strings):
+            #   agg    -> aggregated workers
+            #   condp  -> frontend.args.router-conditional-prefill: true
+            #   disagg -> prefill/decode workers, no conditional-prefill routing
+            frontend_args = (config.get("frontend", {}) or {}).get("args", {}) or {}
+            if agg_workers:
+                category = "agg"
+            elif frontend_args.get("router-conditional-prefill") is True:
+                category = "condp"
+            elif prefill_workers or decode_workers:
+                category = "disagg"
+
             benchmark = config.get("benchmark", {})
             concurrency = benchmark.get("concurrency") or benchmark.get("concurrencies")
             if not config_name:
@@ -145,6 +158,7 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
         "total_token_tput_per_gpu": total_token_tput_per_gpu,
         "ttft_p50": ttft_p50,
         "gpus": gpus,
+        "category": category,
     }
 
 
@@ -268,6 +282,7 @@ def load_series_data_from_dict(dict_path: Path) -> Dict:
             "job_ids": series_info.get("job_ids", []),
             "ttft_p50_ms": series_info.get("ttft_p50_ms", []),
             "gpus": series_info.get("gpus"),
+            "category": series_info.get("category"),
         }
     return series_data
 
@@ -296,6 +311,7 @@ def export_series_data_to_dict(series_data: Dict, dict_path: Path) -> None:
                 "job_ids": info.get("job_ids", []),
                 "ttft_p50_ms": info.get("ttft_p50_ms", []),
                 "gpus": info.get("gpus"),
+                "category": info.get("category"),
             }
             for name, info in series_data.items()
         }
@@ -315,6 +331,7 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
         valid_job_ids = []
         ttft_p50_ms = []
         gpus = None
+        category = None
         for job_id in job_ids:
             job_dir = find_srtslurm_job_dir(job_id, outputs_dir)
             if not job_dir:
@@ -339,6 +356,8 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
             ttft_p50_ms.append(metrics.get("ttft_p50"))
             if gpus is None:
                 gpus = metrics.get("gpus")
+            if category is None:
+                category = metrics.get("category")
 
         if points:
             series_data[series_name] = {
@@ -347,6 +366,7 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
                 "job_ids": valid_job_ids,
                 "ttft_p50_ms": ttft_p50_ms,
                 "gpus": gpus,
+                "category": category,
             }
     
     return series_data
@@ -388,8 +408,13 @@ def main():
     # Create plot
     fig, ax = plt.subplots(figsize=figsize)
     
-    colors = plt.cm.tab10.colors
-    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*']
+    # Combine multiple qualitative colormaps so >10 series stay distinct
+    # (tab10 wraps at 10 and collides color+marker on series 11+).
+    colors = list(plt.cm.tab10.colors) + list(plt.cm.Dark2.colors) + list(plt.cm.Set1.colors)
+    # Marker encodes run category (from config, not name): agg=circle, disagg=diamond, condp=x.
+    # Series without a known category fall back to a per-index marker.
+    marker_by_category = {"agg": "o", "disagg": "D", "condp": "x"}
+    markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*', 'P', 'X']
     
     for i, (series_name, data) in enumerate(series_data.items()):
         points = data["points"]
@@ -397,7 +422,7 @@ def main():
         job_ids = data.get("job_ids", [])
         gpus = data.get("gpus")
         color = colors[i % len(colors)]
-        marker = markers[i % len(markers)]
+        marker = marker_by_category.get(data.get("category"), markers[i % len(markers)])
         
         xs, ys = zip(*points)
         # Create legend label with GPU count prefix and job IDs
@@ -432,7 +457,8 @@ def main():
     ax.set_xlabel("Output Tokens/s/User", fontsize=12)
     ax.set_ylabel("Total Output Tokens/s/GPU", fontsize=12)
     ax.set_title(args.title, fontsize=14)
-    ax.legend(loc="best", fontsize=9, title_fontsize=10)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), borderaxespad=0.0,
+              fontsize=9, title_fontsize=10)
     if args.label_points:
         ax.annotate("point labels: (concurrency, p50 TTFT ms)", xy=(1, 1), xycoords="axes fraction",
                     xytext=(-5, -5), textcoords="offset points", ha="right", va="top", fontsize=8,
@@ -440,7 +466,7 @@ def main():
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(args.output, dpi=150)
+    plt.savefig(args.output, dpi=150, bbox_inches="tight")
     print(f"Saved plot to {args.output}")
     
     # Print summary table

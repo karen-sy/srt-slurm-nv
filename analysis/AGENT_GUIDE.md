@@ -67,7 +67,23 @@ done
 ```
 
 ### Marking Failed Jobs
-For jobs that failed (no `profile_export_aiperf.json`), prefix with `failed_`:
+
+**Determining failure correctly (do NOT just check for `logs/profile_export_aiperf.json`).**
+On success the metrics file is written under `logs/artifacts/<dataset>/profile_export_aiperf.json`, NOT directly in `logs/`. A bare `[ -f logs/profile_export_aiperf.json ]` check will false-flag healthy runs as failed.
+
+The reliable failure signals, in order of preference:
+```bash
+# 1. SLURM exit state — COMPLETED 0:0 means success
+sacct -j <id> --format=JobID%-14,State,ExitCode,Elapsed -X
+
+# 2. Did a real (non-warmup) metrics artifact get written?
+find outputs/<id>* -path "*/artifacts/*" -name profile_export_aiperf.json ! -path "*warmup*" | head
+
+# 3. david_viz.py runtime_error column — populated only on genuine failure
+```
+A job is failed only if `sacct` State is not `COMPLETED` (e.g. `FAILED`/`TIMEOUT`/`CANCELLED`/`OOM`) OR no non-warmup artifact exists.
+
+For genuinely failed jobs, prefix with `failed_`:
 ```bash
 mv outputs/2166900_config_name outputs/2166900_failed_config_name
 ```
@@ -182,8 +198,8 @@ uv run python analysis/plot_pareto.py \
 | `--no-frontier` | Don't draw Pareto frontier lines |
 | `--vllm` | Use vLLM backend for parsing |
 | `--trtllm` | Use TRT-LLM backend for parsing |
-| `--json-output <path>` | Export series data to JSON for later modification |
-| `--json-input <path>` | Load series data from JSON instead of reading job dirs |
+| `--export-dict <path>` | Export series data to JSON for later modification |
+| `--from-dict <path>` | Load series data from JSON instead of reading job dirs |
 
 ### Plot Axes
 
@@ -209,14 +225,14 @@ uv run python analysis/plot_pareto.py \
   --series "config_a" --dir 2191491 2191492 2191493 \
   --series "config_b" --dir 2191496 2191497 2191498 \
   --output analysis/plots/my_pareto.png \
-  --json-output analysis/plots/my_pareto.json \
+  --export-dict analysis/plots/my_pareto.json \
   --vllm
 ```
 
 **Load from JSON (after manual editing):**
 ```bash
 uv run python analysis/plot_pareto.py \
-  --json-input analysis/plots/my_pareto.json \
+  --from-dict analysis/plots/my_pareto.json \
   --output analysis/plots/my_pareto_modified.png
 ```
 
@@ -281,6 +297,56 @@ The `profile_export_aiperf.json` file contains an `error_summary` field:
 ```bash
 jq '.error_summary' outputs/<job_id>*/logs/profile_export_aiperf.json
 ```
+
+### Benign Log Noise (do NOT flag as failures)
+These appear during normal healthy runs — recognize and ignore them:
+- `[ERROR] Failed to get IP for node ... → falling back to socket resolution` — transient startup IP resolution; recovers automatically via socket fallback.
+- `WARNING OSL mismatch: got N tokens (requested M)` — model output-length variance; expected, does not affect the run.
+
+A run is only genuinely failing if `err=` in the realtime profiling line is climbing, or you see the real error patterns above (OOM/NCCL/Timeout/Connection refused) in the worker `.out` logs.
+
+---
+
+## Babysitting: What to Report
+
+When monitoring (babysitting) running jobs, report a per-job table with these columns. Mid-run numbers come from the **latest realtime profiling line** in `logs/benchmark.out`; final numbers come from `david_viz.py` once `profile_export_aiperf.json` exists.
+
+**Required columns in every babysit report:**
+- Job ID + topology/concurrency (from config `name`)
+- GPU count (computed from resources — see below)
+- Progress % (`Profiling: NN%`)
+- **ttft p50** (ms)
+- **itl p50** (ms)
+- **tok/s/usr** — interactivity p50 (`intvty p50`, = output tok/s per user)
+- **total tok/s/gpu** — `(tput_in + tput_out) / gpu_count`
+- `err=` count (must stay 0)
+
+**GPU count** = `prefill_workers × gpus_per_prefill + decode_workers × gpus_per_decode`.
+E.g. `tep2x3p_tep2x3d` = 3×2 + 3×2 = 12; `tep2x3p_tep2x4d` = 3×2 + 4×2 = 14.
+
+**Extraction script** (run from repo root; edit the GPUS map per batch):
+```bash
+declare -A GPUS=( [2059281]=12 [2059286]=14 )   # job_id -> total gpus
+for id in "${!GPUS[@]}"; do
+  b=outputs/$id/logs/benchmark.out
+  ln=$(grep -an "realtime [0-9:]* profiling" "$b" | tail -1 | cut -d: -f1)
+  blk=$(sed -n "${ln},$((ln+6))p" "$b")
+  ti=$(echo "$blk"   | grep -aoE "tput_in=[0-9]+"   | head -1 | cut -d= -f2)
+  to=$(echo "$blk"   | grep -aoE "tput_out=[0-9]+"  | head -1 | cut -d= -f2)
+  ttft=$(echo "$blk" | grep -aoE "ttft +p50=[0-9]+" | head -1 | cut -d= -f2)
+  itl=$(echo "$blk"  | grep -aoE "itl +p50=[0-9]+"  | head -1 | cut -d= -f2)
+  usr=$(echo "$blk"  | grep -aoE "intvty +p50=[0-9]+" | head -1 | cut -d= -f2)
+  err=$(echo "$blk"  | grep -aoE "err=[0-9]+"       | head -1 | cut -d= -f2)
+  pct=$(grep -aoE "Profiling: +[0-9]+%" "$b" | tail -1 | grep -oE "[0-9]+")
+  g=${GPUS[$id]}
+  totgpu=$(awk "BEGIN{printf \"%.0f\", ($ti+$to)/$g}")
+  printf "%s | %s%% | g=%s | ttft_p50=%sms | itl_p50=%sms | usr=%s tok/s | totgpu=%s tok/s/gpu | err=%s\n" \
+    "$id" "${pct:-0}" "$g" "$ttft" "$itl" "$usr" "$totgpu" "${err:-?}"
+done
+```
+**Gotcha:** extract values with `cut -d= -f2`, NOT a bare `[0-9]+` regex — the `50` in `p50=` gets captured otherwise.
+
+Each profiling run is ~30 min wall-clock. When a job finishes, triage it (rename dir, flag failures, then `david_viz.py` for final metrics).
 
 ---
 
@@ -423,7 +489,7 @@ uv run python analysis/plot_pareto.py \
   --label-points \
   --title "Offload vs No-Offload Comparison" \
   --output analysis/plots/offload_comparison.png \
-  --json-output analysis/plots/offload_comparison.json \
+  --export-dict analysis/plots/offload_comparison.json \
   --vllm
 ```
 
