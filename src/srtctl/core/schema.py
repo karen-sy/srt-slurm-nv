@@ -588,6 +588,8 @@ class BenchmarkConfig:
     aiperf_package: str | None = None
     # Extra aiperf CLI flags passed through to bench.sh (e.g., benchmark-duration: 600, workers-max: 200)
     aiperf_args: dict[str, Any] = field(default_factory=dict)
+    # Extra environment variables exported before bench.sh runs (e.g., AIPERF_HTTP_CONNECTION_LIMIT: "200")
+    aiperf_env: dict[str, str] = field(default_factory=dict)
 
     def get_concurrency_list(self) -> list[int]:
         if self.concurrencies is None:

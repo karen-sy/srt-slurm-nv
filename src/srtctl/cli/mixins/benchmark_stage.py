@@ -317,5 +317,7 @@ class BenchmarkStageMixin:
             env.update(self._get_aiperf_server_metrics_env())
             if self.config.benchmark.aiperf_package:
                 env["AIPERF_PACKAGE"] = self.config.benchmark.aiperf_package
+            if self.config.benchmark.aiperf_env:
+                env.update(self.config.benchmark.aiperf_env)
 
         return env
