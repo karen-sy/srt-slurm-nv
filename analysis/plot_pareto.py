@@ -83,6 +83,7 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
     gpus = None
     concurrency = None
     category = None
+    policy = None
     config_name = job_dir.name.split("_", 1)[1] if "_" in job_dir.name else None
     
     if config_path:
@@ -118,6 +119,7 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
                 category = "agg"
             elif frontend_args.get("router-conditional-prefill") is True:
                 category = "condp"
+                policy = frontend_args.get("router-conditional-prefill-policy")
             elif prefill_workers or decode_workers:
                 category = "disagg"
 
@@ -159,6 +161,7 @@ def extract_metrics(job_dir: Path) -> Dict[str, object] | None:
         "ttft_p50": ttft_p50,
         "gpus": gpus,
         "category": category,
+        "policy": policy,
     }
 
 
@@ -283,6 +286,7 @@ def load_series_data_from_dict(dict_path: Path) -> Dict:
             "ttft_p50_ms": series_info.get("ttft_p50_ms", []),
             "gpus": series_info.get("gpus"),
             "category": series_info.get("category"),
+            "policy": series_info.get("policy"),
         }
     return series_data
 
@@ -312,6 +316,7 @@ def export_series_data_to_dict(series_data: Dict, dict_path: Path) -> None:
                 "ttft_p50_ms": info.get("ttft_p50_ms", []),
                 "gpus": info.get("gpus"),
                 "category": info.get("category"),
+                "policy": info.get("policy"),
             }
             for name, info in series_data.items()
         }
@@ -332,6 +337,7 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
         ttft_p50_ms = []
         gpus = None
         category = None
+        policy = None
         for job_id in job_ids:
             job_dir = find_srtslurm_job_dir(job_id, outputs_dir)
             if not job_dir:
@@ -358,6 +364,8 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
                 gpus = metrics.get("gpus")
             if category is None:
                 category = metrics.get("category")
+            if policy is None:
+                policy = metrics.get("policy")
 
         if points:
             series_data[series_name] = {
@@ -367,6 +375,7 @@ def collect_series_data(series_list: List[Tuple[str, List[str]]], outputs_dir: P
                 "ttft_p50_ms": ttft_p50_ms,
                 "gpus": gpus,
                 "category": category,
+                "policy": policy,
             }
     
     return series_data
@@ -415,6 +424,9 @@ def main():
     # Series without a known category fall back to a per-index marker.
     marker_by_category = {"agg": "o", "disagg": "D", "condp": "x"}
     markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*', 'P', 'X']
+    # Frontier linestyle encodes the conditional-prefill policy (from config, not name):
+    # isl_or_load is drawn solid to stand out; everything else stays dashed.
+    linestyle_by_policy = {"isl_or_load": "-"}
     
     for i, (series_name, data) in enumerate(series_data.items()):
         points = data["points"]
@@ -441,7 +453,8 @@ def main():
             frontier = compute_pareto_frontier(points)
             if len(frontier) > 1:
                 fx, fy = zip(*frontier)
-                ax.plot(fx, fy, c=color, linestyle='--', alpha=0.5, linewidth=1.5)
+                ls = linestyle_by_policy.get(data.get("policy"), "--")
+                ax.plot(fx, fy, c=color, linestyle=ls, alpha=0.5, linewidth=1.5)
         
         # Label points
         if args.label_points:

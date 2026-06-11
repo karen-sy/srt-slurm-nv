@@ -27,12 +27,11 @@ resources:
   gpus_per_node: 4
 
 slurm:
-  time_limit: "02:30:00"
+  time_limit: "01:45:00"
 
-infra:
-  health_check:
-    max_attempts: 360
-    interval_seconds: 10
+health_check:
+  max_attempts: 360
+  interval_seconds: 10
 
 backend:
   type: vllm
@@ -90,7 +89,6 @@ frontend:
 
 benchmark:
   type: trace-replay
-  # agentic 15% trace — 3541 rows, ISL ~64k, OSL ~400 — highest crash rate per issue
   trace_file: /traces/nim_turbo_64k_400_90kv_agent_new_noschedule_short_15perc.jsonl
   concurrencies:
     - 20
@@ -100,11 +98,13 @@ benchmark:
     AIPERF_SERVICE_PROFILE_CONFIGURE_TIMEOUT: "3600"
     AIPERF_DATASET_CONFIGURATION_TIMEOUT: "3600"
   aiperf_args:
+    benchmark-duration: 2700
+    benchmark-grace-period: 30
     num-requests: 3541
     prompt-input-tokens-block-size: 512
     use-server-token-count: true
     request-timeout-seconds: 1200
-    workers-max: 20
+    workers-max: 20  # matches concurrency
 
 extra_mount:
   - /lustre/fsw/coreai_dlfw_dev/karenc/dynamo/recipes/nemotron-3-ultra/perf/traces:/traces
