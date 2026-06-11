@@ -98,6 +98,8 @@ frontend:
     router-conditional-prefill-eff-isl-threshold: 4096
     router-conditional-prefill-eff-isl-ratio-threshold: 0.8
     router-conditional-prefill-busy-threshold: 16
+    router-queue-threshold: "None"
+    admission-control: none
   enable_multiple_frontends: false
   env:
     OTEL_SERVICE_NAME: "dynamo-frontend-disagg-tep2x3p-tep2x4d"

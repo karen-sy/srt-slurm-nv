@@ -123,6 +123,7 @@ aiperf profile \
     --streaming \
     --ui simple \
     --extra-inputs ignore_eos:true \
+    --osl 100 \
     --concurrency 1 \
     --request-count 5 \
     --artifact-dir "${WARMUP_DIR}"

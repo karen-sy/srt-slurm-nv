@@ -32,6 +32,9 @@ resources:
   gpus_per_agg: 4
   gpus_per_node: 4
 
+dynamo:
+  install: false
+
 slurm:
   time_limit: "01:45:00"
 
@@ -94,7 +97,6 @@ frontend:
   type: dynamo
   args:
     router-mode: kv
-    router-kv-events: true
     kv-cache-block-size: 64
     router-reset-states: true
 
