@@ -25,7 +25,7 @@ resources:
   gpus_per_decode: 4
 
 slurm:
-  time_limit: "00:45:00"
+  time_limit: "00:40:00"
 
 backend:
   type: vllm
@@ -119,7 +119,7 @@ observability:
   otel_endpoint: "http://10.57.209.4:4317"
 
 sweep:
-  concurrency: [96]
+  concurrency: [80, 96]
 
 extra_mount:
   - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"
@@ -133,7 +133,7 @@ benchmark:
   itl_threshold_ms: 10
   aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
-    benchmark-duration: 1800
+    benchmark-duration: 1500  # 25 mins
     benchmark-grace-period: 30
     request-timeout-seconds: 1200
     workers-max: 200

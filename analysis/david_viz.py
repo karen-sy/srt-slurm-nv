@@ -92,14 +92,21 @@ def extract_condp_policy(config: dict) -> str:
         - "{policy} | {isl_threshold} / {ratio_threshold}" if enabled
     """
     frontend_args = config.get("frontend", {}).get("args", {})
-    
-    if not frontend_args.get("router-conditional-prefill"):
+
+    # The flag family was renamed conditional-prefill -> conditional-disagg
+    # in the dynamo branch (2026-06-21). Support both names so older and newer
+    # runs both resolve.
+    if frontend_args.get("router-conditional-disagg"):
+        prefix = "router-conditional-disagg"
+    elif frontend_args.get("router-conditional-prefill"):
+        prefix = "router-conditional-prefill"
+    else:
         return "N/A"
-    
-    policy = frontend_args.get("router-conditional-prefill-policy", "unknown")
-    isl_threshold = frontend_args.get("router-conditional-prefill-eff-isl-threshold", "?")
-    ratio_threshold = frontend_args.get("router-conditional-prefill-eff-isl-ratio-threshold", "?")
-    
+
+    policy = frontend_args.get(f"{prefix}-policy", "unknown")
+    isl_threshold = frontend_args.get(f"{prefix}-eff-isl-threshold", "?")
+    ratio_threshold = frontend_args.get(f"{prefix}-eff-isl-ratio-threshold", "?")
+
     return f"{policy} | {isl_threshold} / {ratio_threshold}"
 
 
