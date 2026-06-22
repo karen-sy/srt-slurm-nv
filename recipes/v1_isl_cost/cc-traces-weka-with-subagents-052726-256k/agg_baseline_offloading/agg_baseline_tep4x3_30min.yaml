@@ -1,5 +1,5 @@
 # https://recipes.vllm.ai/Qwen/Qwen3-235B-A22B-Instruct-2507
-name: agg_tep4x3_kv_routing
+name: agg_offload_tep4x3_kv_routing
 
 identity:
   model:

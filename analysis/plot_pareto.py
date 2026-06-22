@@ -218,13 +218,14 @@ def parse_args():
     )
     parser.add_argument(
         "--label-points",
-        action="store_true",
-        help="Label each point with concurrency"
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Label each point with concurrency (default: on; use --no-label-points to disable)"
     )
     parser.add_argument(
         "--figsize",
-        default="10,8",
-        help="Figure size as 'width,height' (default: 10,8)"
+        default="20,8",
+        help="Figure size as 'width,height' (default: 20,8)"
     )
     parser.add_argument(
         "--export-dict",

@@ -1,5 +1,5 @@
 # https://recipes.vllm.ai/Qwen/Qwen3-235B-A22B-Instruct-2507
-name: agg_offload_tep2x6_kv_routing
+name: agg_tep2x6_kv_routing
 
 identity:
   model:
@@ -49,8 +49,6 @@ backend:
       enable-prefix-caching: true
       kv-cache-dtype: fp8
       # 120 GB/rank × TP=2 = 240 GB total
-      kv-offloading-size: 240
-      kv-transfer-config: '{"kv_connector_extra_config": {"offload_prompt_only": false, "eviction_policy": "lru", "store_threshold": 0}}'
       # misc stuff
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"

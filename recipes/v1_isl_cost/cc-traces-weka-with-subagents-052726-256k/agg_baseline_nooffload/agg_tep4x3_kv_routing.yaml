@@ -1,5 +1,5 @@
 # https://recipes.vllm.ai/Qwen/Qwen3-235B-A22B-Instruct-2507
-name: agg_offload_tep2x6_kv_routing
+name: agg_tep4x3_kv_routing
 
 identity:
   model:
@@ -15,9 +15,9 @@ model:
 
 resources:
   gpu_type: gb200
-  agg_nodes: 4
-  agg_workers: 6
-  gpus_per_agg: 2
+  agg_nodes: 3
+  agg_workers: 3
+  gpus_per_agg: 4
   gpus_per_node: 4
 
 slurm:
@@ -38,19 +38,17 @@ backend:
   vllm_config:
     aggregated:
       # parallelisms
-      tensor-parallel-size: 2
+      tensor-parallel-size: 4
       enable-expert-parallel: true
       # memory stuff
       gpu-memory-utilization: 0.85
       max-model-len: 262144
       block-size: 64
-      max-num-batched-tokens: 16384
+      max-num-batched-tokens: 32768
       # kv cache stuff
       enable-prefix-caching: true
       kv-cache-dtype: fp8
-      # 120 GB/rank × TP=2 = 240 GB total
-      kv-offloading-size: 240
-      kv-transfer-config: '{"kv_connector_extra_config": {"offload_prompt_only": false, "eviction_policy": "lru", "store_threshold": 0}}'
+      # 120 GB/rank × TP=4 = 480 GB total
       # misc stuff
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"
