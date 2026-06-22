@@ -67,6 +67,7 @@ backend:
       block-size: 64
       max-num-batched-tokens: 32768
       enable-prefix-caching: true
+      kv-cache-metrics: true
       kv-cache-dtype: fp8
       kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
       disaggregation-mode: prefill
@@ -81,6 +82,7 @@ backend:
       block-size: 64
       max-num-batched-tokens: 4352
       enable-prefix-caching: true
+      kv-cache-metrics: true
       kv-cache-dtype: fp8
       kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
       disaggregation-mode: decode

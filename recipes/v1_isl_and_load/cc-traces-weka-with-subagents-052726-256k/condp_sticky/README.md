@@ -25,6 +25,7 @@ Important run-readiness notes:
 
 - These recipes use the renamed current flags: `router-conditional-disagg*` instead of the stale `router-conditional-prefill*` names.
 - They intentionally rely on inherited base router overlap credit: conditional-disagg leaves the per-request decode override unset, so it inherits the base router default.
+- They enable vLLM `kv-cache-metrics` on both prefill and decode workers so the patched KV store/duplicate-block counters are emitted.
 - The `model.container` value is intentionally inherited from the latest condp vLLM recipes. Replace it with the image built from the current Dynamo branch if the old image does not include the renamed flags.
 
 Suggested launch order:

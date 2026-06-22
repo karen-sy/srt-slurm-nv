@@ -1,6 +1,6 @@
-# Matched against 2059303: no-offload condp c96, tep4x2p_tep4x3d, high decode-local reuse.
-# Goal: no-regression/headroom contrast for decode-overlap affinity.
-name: condp_sticky_20gpu_tep4x2p_tep4x3d_affinity_nooffload_c96
+# Matched against 2178352/2178348: 14GPU sticky qNone + decode gate 0.90.
+# Goal: add decode-only CPU KV offload with admission filtering, keeping prefill no-offload.
+name: condp_sticky_offload_14gpu_tep4x2p_tep2x3d_decode_lru
 
 identity:
   model:
@@ -22,10 +22,10 @@ resources:
   gpus_per_prefill: 4
   decode_nodes: 3
   decode_workers: 3
-  gpus_per_decode: 4
+  gpus_per_decode: 2
 
 slurm:
-  time_limit: "00:40:00"
+  time_limit: "00:45:00"
 
 backend:
   type: vllm
@@ -46,7 +46,7 @@ backend:
     DYN_TOOL_CALL_PARSER: hermes
     DYN_REASONING_PARSER: qwen3
   decode_environment:
-    OTEL_SERVICE_NAME: "dynamo-decode-tep4x3-kv"
+    OTEL_SERVICE_NAME: "dynamo-decode-tep2x3-kv"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
     VLLM_NIXL_SIDE_CHANNEL_PORT: "5700"
@@ -69,13 +69,13 @@ backend:
       enable-prefix-caching: true
       kv-cache-metrics: true
       kv-cache-dtype: fp8
-      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
+      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_producer"}'
       disaggregation-mode: prefill
       enable-conditional-disagg: true
       trust-remote-code: true
       otlp-traces-endpoint: "http://10.57.209.4:4317"
     decode:
-      tensor-parallel-size: 4
+      tensor-parallel-size: 2
       enable-expert-parallel: true
       gpu-memory-utilization: 0.85
       max-model-len: 262144
@@ -84,7 +84,9 @@ backend:
       enable-prefix-caching: true
       kv-cache-metrics: true
       kv-cache-dtype: fp8
-      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
+      # Decode-only offload: NIXL consumes remote prefill KV; CPU offload stores selected decode-side prompt KV.
+      # cpu_bytes_to_use = 120 GiB/rank, not total. store_threshold=2 filters one-off prompt blocks.
+      kv-transfer-config: '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_consumer"},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":128849018880,"store_threshold":2,"max_tracker_size":262144,"eviction_policy":"lru","offload_prompt_only":true}}]}}'
       disaggregation-mode: decode
       enable-conditional-disagg: true
       trust-remote-code: true
@@ -96,12 +98,15 @@ frontend:
     router-mode: kv
     router-reset-states: true
     router-conditional-disagg: true
-    router-conditional-disagg-policy: isl_bounding
+    router-conditional-disagg-policy: isl_or_load
     router-conditional-disagg-eff-isl-threshold: 4096
     router-conditional-disagg-eff-isl-ratio-threshold: 0.8
+    router-conditional-disagg-prefill-busy-threshold: 16
+    router-conditional-disagg-decode-busy-threshold: 0.90
+    router-queue-threshold: None
   enable_multiple_frontends: false
   env:
-    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-sticky-tep4x2p-tep4x3d"
+    OTEL_SERVICE_NAME: "dynamo-frontend-sticky-offload-lru-tep4x2p-tep2x3d"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
 
@@ -121,7 +126,7 @@ observability:
   otel_endpoint: "http://10.57.209.4:4317"
 
 sweep:
-  concurrency: [80, 96]
+  concurrency: [96, 80]
 
 extra_mount:
   - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"
@@ -135,7 +140,7 @@ benchmark:
   itl_threshold_ms: 10
   aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
-    benchmark-duration: 1500  # 25 mins
+    benchmark-duration: 1500
     benchmark-grace-period: 30
     request-timeout-seconds: 1200
     workers-max: 200
