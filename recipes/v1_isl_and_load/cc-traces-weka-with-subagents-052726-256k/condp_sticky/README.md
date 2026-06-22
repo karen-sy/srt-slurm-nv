@@ -16,6 +16,11 @@ These recipes are intended to answer three questions from the 0605 perf table:
    - Anchor: `2059303`, no-offload `tep4x2p_tep4x3d`, c96, high decode-local reuse (~75.5%).
    - Expectation: smaller gain than 14-GPU; useful no-regression check.
 
+4. Does a 16-GPU middle topology recover enough decode KV headroom without needing the full 20-GPU `3xTP4` decode pool?
+   - Anchor: `2178352`, no-offload `tep4x2p_tep2x3d`, c96, qNone, decode gate 0.90.
+   - New variable: decode topology changes from `3xTP2` to `2xTP4`.
+   - Expectation: better decode-local reuse and ITL than the 14-GPU topology, with less total capacity than the 20-GPU `3xTP4` case.
+
 Here "sticky" means the decode cache-affinity behavior implemented in the
 current Dynamo branch: when conditional-disagg is enabled and
 the default router overlap credit is inherited, the decode router can score
@@ -45,6 +50,10 @@ Suggested launch order:
 4. `04_nooffload_14gpu_tep4x2p_tep2x3d_concurrency_shape_decode_gate.yaml`
    - c60/c80/c96 with qNone, decode gate 0.95.
    - Checks whether the policy shifts the previous “c96 too much churn” shape.
+
+5. `05_nooffload_16gpu_tep4x2p_tep4x2d_decode_gate.yaml`
+   - c96/c80 with qNone, decode gate 0.90.
+   - Copies the best sticky setting and changes only the decode topology to `2xTP4`.
 
 Primary metrics to compare:
 

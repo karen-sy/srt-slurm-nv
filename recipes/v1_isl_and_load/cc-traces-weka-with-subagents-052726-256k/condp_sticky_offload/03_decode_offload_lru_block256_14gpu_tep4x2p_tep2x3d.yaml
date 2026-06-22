@@ -139,7 +139,7 @@ benchmark:
   itl_threshold_ms: 10
   aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
-    benchmark-duration: 1800
+    benchmark-duration: 1500
     benchmark-grace-period: 30
     request-timeout-seconds: 1200
     workers-max: 200

@@ -62,6 +62,10 @@ Success criteria:
 - ITL improves materially from the no-offload `~32ms` average.
 - tok/s/GPU stays close to, or beats, `2178352`.
 
+Post-run follow-up:
+
+- Once the best offload variant is known, create a matched pure-disagg baseline with the same offload connector config but no conditional disagg. This isolates whether the winning offload setup helps by itself, or whether it specifically depends on sticky conditional-disagg routing.
+
 Launch:
 
 ```bash
