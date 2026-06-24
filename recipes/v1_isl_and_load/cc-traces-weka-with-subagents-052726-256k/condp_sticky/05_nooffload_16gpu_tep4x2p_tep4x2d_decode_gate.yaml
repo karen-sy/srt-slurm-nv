@@ -1,6 +1,6 @@
-# Matched against 2059303: no-offload condp c96, tep4x2p_tep4x3d, high decode-local reuse.
-# Goal: no-regression/headroom contrast for decode-overlap affinity.
-name: condp_sticky_20gpu_tep4x2p_tep4x3d_affinity_nooffload_c96
+# Topology isolate from the best sticky run, 2178352:
+# no-offload condp, qNone, decode busy 0.90, changing decode from 3xTP2 to 2xTP4.
+name: condp_sticky_16gpu_tep4x2p_tep4x2d_decode_gate_nooffload
 
 identity:
   model:
@@ -20,8 +20,8 @@ resources:
   prefill_nodes: 2
   prefill_workers: 2
   gpus_per_prefill: 4
-  decode_nodes: 3
-  decode_workers: 3
+  decode_nodes: 2
+  decode_workers: 2
   gpus_per_decode: 4
 
 slurm:
@@ -46,7 +46,7 @@ backend:
     DYN_TOOL_CALL_PARSER: hermes
     DYN_REASONING_PARSER: qwen3
   decode_environment:
-    OTEL_SERVICE_NAME: "dynamo-decode-tep4x3-kv"
+    OTEL_SERVICE_NAME: "dynamo-decode-tep4x2-kv"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
     VLLM_NIXL_SIDE_CHANNEL_PORT: "5700"
@@ -96,12 +96,15 @@ frontend:
     router-mode: kv
     router-reset-states: true
     router-conditional-disagg: true
-    router-conditional-disagg-policy: isl_bounding
+    router-conditional-disagg-policy: isl_or_load
     router-conditional-disagg-eff-isl-threshold: 4096
     router-conditional-disagg-eff-isl-ratio-threshold: 0.8
+    router-conditional-disagg-prefill-busy-threshold: 16
+    router-conditional-disagg-decode-busy-threshold: "{decode_busy_threshold}"
+    router-queue-threshold: "{queue_threshold}"
   enable_multiple_frontends: false
   env:
-    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-sticky-tep4x2p-tep4x3d"
+    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-sticky-tep4x2p-tep4x2d-decodegate"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
 
@@ -121,7 +124,9 @@ observability:
   otel_endpoint: "http://10.57.209.4:4317"
 
 sweep:
-  concurrency: [80, 96]
+  concurrency: [96, 80]
+  queue_threshold: [None]
+  decode_busy_threshold: [0.90]
 
 extra_mount:
   - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"
@@ -135,7 +140,7 @@ benchmark:
   itl_threshold_ms: 10
   aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
-    benchmark-duration: 1800
+    benchmark-duration: 1500  # 25 mins
     benchmark-grace-period: 30
     request-timeout-seconds: 1200
     workers-max: 200
