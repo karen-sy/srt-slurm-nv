@@ -9,10 +9,11 @@ Shared deltas from the prior sticky recipes:
 - Prefill NIXL uses `kv_role=kv_producer` with `kv_connector_extra_config.bidirectional_kv_xfer=true`.
 - Decode NIXL uses `kv_role=kv_consumer` with `kv_connector_extra_config.bidirectional_kv_xfer=true`.
 - Frontend env enables Dynamo's session KV cache with `DYN_ENABLE_VLLM_NIXL_BIDIRECTIONAL_KV=1`.
+- `trace-replay-sa/bench.sh` exports `AIPERF_HTTP_X_SESSION_ID_FROM_CORRELATION_ID=1`, and these recipes pin aiperf to `git+https://github.com/SemiAnalysisAI/aiperf.git@4c6525ab71d4cd9fc01054410d5b88bfe4feff9e`, so aiperf sends `X-Session-ID` from its stable `X-Correlation-ID`.
 - `DYN_VLLM_NIXL_BIDIRECTIONAL_KV_TTL_SECS=450`, slightly below vLLM's default `decoder_kv_blocks_ttl=480`.
 - All recipes keep `kv-cache-metrics: true` and c96 before c80 in the sweep.
 
-Important caveat: this branch keys the cache from `x-dynamo-session-id` / session-affinity context. If the benchmark client does not emit that header for turns in the same conversation, these recipes will enable the connector but the D->P path will be inert. Confirm in `frontend.out` by looking for `cached decode KV transfer params` and `injected cached decode KV transfer params` log lines.
+Validation caveat: these recipes rely on aiperf emitting `X-Session-ID` from `X-Correlation-ID`. Confirm in `profile_export.jsonl` that `X-Session-ID` count matches `X-Correlation-ID`, and in `frontend.out` by looking for `cached decode KV transfer params` and `injected cached decode KV transfer params` log lines.
 
 Recipes:
 

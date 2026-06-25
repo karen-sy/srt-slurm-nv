@@ -43,6 +43,9 @@ trap cleanup EXIT
 
 # Ensure Python output is unbuffered for real-time logging
 export PYTHONUNBUFFERED=1
+# For agentic multi-turn traces, make aiperf mirror its stable X-Correlation-ID
+# into X-Session-ID so Dynamo can key session-scoped features such as bidirectional KV.
+export AIPERF_HTTP_X_SESSION_ID_FROM_CORRELATION_ID="${AIPERF_HTTP_X_SESSION_ID_FROM_CORRELATION_ID:-1}"
 
 ENDPOINT=$1
 MODEL_NAME=${2:-"test-model"}

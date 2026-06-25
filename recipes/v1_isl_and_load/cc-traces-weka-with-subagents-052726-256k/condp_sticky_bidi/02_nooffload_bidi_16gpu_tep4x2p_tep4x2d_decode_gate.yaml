@@ -140,7 +140,7 @@ benchmark:
   concurrencies: "{concurrency}"
   ttft_threshold_ms: 5000
   itl_threshold_ms: 10
-  aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
+  aiperf_package: "git+https://github.com/SemiAnalysisAI/aiperf.git@4c6525ab71d4cd9fc01054410d5b88bfe4feff9e"
   aiperf_args:
     benchmark-duration: 1500  # 25 mins
     benchmark-grace-period: 30
