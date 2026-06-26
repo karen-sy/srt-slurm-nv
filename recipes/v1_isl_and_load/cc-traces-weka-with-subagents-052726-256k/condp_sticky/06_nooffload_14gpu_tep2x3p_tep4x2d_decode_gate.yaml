@@ -1,25 +1,25 @@
-# New 12GPU prefill-scarce/high-decode-residency topology: 1xTP4 prefill + 2xTP4 decode.
-# Goal: test whether D->P pull preserves most 16GPU total throughput after dropping one prefill worker.
-name: condp_sticky_bidi_12gpu_tep4x1p_tep4x2d_prefill_scarce
+# Topology isolate from the best sticky run, 2178352:
+# no-offload condp, qNone, decode busy 0.90, changing decode from 3xTP2 to 2xTP4.
+name: condp_sticky_14gpu_tep2x3p_tep4x2d_decode_gate_nooffload
 
 identity:
   model:
     repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
   frameworks:
-    dynamo: 1.3.0
-    vllm: 0.23.0+cu13
+    dynamo: 1.2.0
+    vllm: 0.21.0+cu129
 
 model:
   path: qwen3-235b-a22b-instruct-2507-nvfp4
-  container: dyn-130-vllm-0230-condp-kvrouting-isl-and-load-vllmpull
+  container: dyn-121-vllm-0210-condp-v1-isl-and-load
   precision: fp4
 
 resources:
   gpu_type: gb200
   gpus_per_node: 4
-  prefill_nodes: 1
-  prefill_workers: 1
-  gpus_per_prefill: 4
+  prefill_nodes: 2
+  prefill_workers: 3
+  gpus_per_prefill: 2
   decode_nodes: 2
   decode_workers: 2
   gpus_per_decode: 4
@@ -29,12 +29,11 @@ slurm:
 
 backend:
   type: vllm
-  connector: null  # to prevent srtctl adding a default --kv-transfer-config
   kv_events_config:
     prefill: true
     decode: true
   prefill_environment:
-    OTEL_SERVICE_NAME: "dynamo-prefill-tep4x1-kv"
+    OTEL_SERVICE_NAME: "dynamo-prefill-tep4x2-kv"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
     VLLM_NIXL_SIDE_CHANNEL_PORT: "5600"
@@ -61,7 +60,7 @@ backend:
     DYN_REASONING_PARSER: qwen3
   vllm_config:
     prefill:
-      tensor-parallel-size: 4
+      tensor-parallel-size: 2
       enable-expert-parallel: true
       gpu-memory-utilization: 0.85
       max-model-len: 262144
@@ -70,7 +69,7 @@ backend:
       enable-prefix-caching: true
       kv-cache-metrics: true
       kv-cache-dtype: fp8
-      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_producer","kv_connector_extra_config":{"bidirectional_kv_xfer":true}}'
+      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
       disaggregation-mode: prefill
       enable-conditional-disagg: true
       trust-remote-code: true
@@ -85,7 +84,7 @@ backend:
       enable-prefix-caching: true
       kv-cache-metrics: true
       kv-cache-dtype: fp8
-      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_consumer","kv_connector_extra_config":{"bidirectional_kv_xfer":true,"decoder_kv_blocks_ttl":10}}'
+      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
       disaggregation-mode: decode
       enable-conditional-disagg: true
       trust-remote-code: true
@@ -105,11 +104,9 @@ frontend:
     router-queue-threshold: "{queue_threshold}"
   enable_multiple_frontends: false
   env:
-    OTEL_SERVICE_NAME: "dynamo-frontend-bidi-sticky-tep4x1p-tep4x2d-decodegate"
+    OTEL_SERVICE_NAME: "dynamo-frontend-disagg-sticky-tep4x2p-tep4x2d-decodegate"
     OTEL_EXPORT_ENABLED: "true"
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
-    DYN_ENABLE_VLLM_NIXL_BIDIRECTIONAL_KV: "1"
-    DYN_VLLM_NIXL_BIDIRECTIONAL_KV_TTL_SECS: "450"
 
 health_check:
   max_attempts: 500
@@ -141,7 +138,7 @@ benchmark:
   concurrencies: "{concurrency}"
   ttft_threshold_ms: 5000
   itl_threshold_ms: 10
-  aiperf_package: "git+https://github.com/SemiAnalysisAI/aiperf.git@4c6525ab71d4cd9fc01054410d5b88bfe4feff9e"
+  aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
   aiperf_args:
     benchmark-duration: 1500  # 25 mins
     benchmark-grace-period: 30

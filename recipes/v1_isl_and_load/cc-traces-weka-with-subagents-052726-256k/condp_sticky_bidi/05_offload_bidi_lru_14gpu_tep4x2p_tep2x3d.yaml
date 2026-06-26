@@ -6,8 +6,8 @@ identity:
   model:
     repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
   frameworks:
-    dynamo: 1.2.0
-    vllm: 0.21.0+cu129
+    dynamo: 1.3.0
+    vllm: 0.23.0+cu13
 
 model:
   path: qwen3-235b-a22b-instruct-2507-nvfp4
@@ -29,6 +29,7 @@ slurm:
 
 backend:
   type: vllm
+  connector: null  # to prevent srtctl adding a default --kv-transfer-config
   kv_events_config:
     prefill: true
     decode: true
@@ -86,7 +87,7 @@ backend:
       kv-cache-dtype: fp8
       # Decode-only offload: NIXL consumes remote prefill KV; CPU offload stores selected decode-side prompt KV.
       # cpu_bytes_to_use = 120 GiB/rank, not total. store_threshold=2 filters one-off prompt blocks.
-      kv-transfer-config: '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_consumer","kv_connector_extra_config":{"bidirectional_kv_xfer":true}},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":128849018880,"store_threshold":2,"max_tracker_size":262144,"eviction_policy":"lru","offload_prompt_only":true}}]}}'
+      kv-transfer-config: '{"kv_connector":"MultiConnector","kv_role":"kv_both","kv_connector_extra_config":{"connectors":[{"kv_connector":"NixlConnector","kv_role":"kv_consumer","kv_connector_extra_config":{"bidirectional_kv_xfer":true,"decoder_kv_blocks_ttl":10}},{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":128849018880,"store_threshold":2,"max_tracker_size":262144,"eviction_policy":"lru","offload_prompt_only":true}}]}}'
       disaggregation-mode: decode
       enable-conditional-disagg: true
       trust-remote-code: true
