@@ -284,6 +284,7 @@ def load_series_data_from_dict(dict_path: Path) -> Dict:
             "ttft_p50_ms": series_info.get("ttft_p50_ms", []),
             "gpus": series_info.get("gpus"),
             "category": series_info.get("category"),
+            "framework": series_info.get("framework"),
         }
     return series_data
 
@@ -313,6 +314,7 @@ def export_series_data_to_dict(series_data: Dict, dict_path: Path) -> None:
                 "ttft_p50_ms": info.get("ttft_p50_ms", []),
                 "gpus": info.get("gpus"),
                 "category": info.get("category"),
+                "framework": info.get("framework"),
             }
             for name, info in series_data.items()
         }
@@ -412,9 +414,10 @@ def main():
     # Combine multiple qualitative colormaps so >10 series stay distinct
     # (tab10 wraps at 10 and collides color+marker on series 11+).
     colors = list(plt.cm.tab10.colors) + list(plt.cm.Dark2.colors) + list(plt.cm.Set1.colors)
-    # Marker encodes run category (from config, not name): agg=circle, disagg=diamond, condp=x.
-    # Series without a known category fall back to a per-index marker.
+    # Marker can encode framework when provided by a hand-authored reference
+    # file; otherwise it encodes run category from srtslurm config metadata.
     marker_by_category = {"agg": "o", "disagg": "D", "condp": "x"}
+    marker_by_framework = {"vllm": "o", "sglang": "^", "trtllm": "s"}
     markers = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*', 'P', 'X']
     
     for i, (series_name, data) in enumerate(series_data.items()):
@@ -423,7 +426,10 @@ def main():
         job_ids = data.get("job_ids", [])
         gpus = data.get("gpus")
         color = colors[i % len(colors)]
-        marker = marker_by_category.get(data.get("category"), markers[i % len(markers)])
+        marker = marker_by_framework.get(
+            data.get("framework"),
+            marker_by_category.get(data.get("category"), markers[i % len(markers)]),
+        )
         
         xs, ys = zip(*points)
         # Create legend label with GPU count prefix and job IDs
