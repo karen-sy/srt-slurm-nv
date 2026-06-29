@@ -148,7 +148,13 @@ benchmark:
   itl_threshold_ms: 50
   aiperf_package: "git+https://github.com/SemiAnalysisAI/aiperf.git@e3920297890b3532970b672a23561a369eb30c35"
   aiperf_args:
-    benchmark-duration: 1800
+    scenario: inferencex-agentx-mvp
+    use-dynamo-conv-aware-routing: true
+    dynamo-session-timeout-seconds: 3600
+    use-server-token-count: true
+    failed-request-threshold: 0.1
+    slice-duration: 1.0
+    benchmark-duration: 900
     benchmark-grace-period: 60
     request-timeout-seconds: 1800
     workers-max: 1200
