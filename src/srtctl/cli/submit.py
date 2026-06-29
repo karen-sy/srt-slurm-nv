@@ -158,6 +158,18 @@ def show_config_details(config: SrtConfig) -> None:
         opts = " ".join(f"--{k} {v}" if v else f"--{k}" for k, v in config.srun_options.items())
         console.print(f"[dim]srun options:[/] {opts}")
 
+    # --- vLLM DP launch mode ---
+    dp_launch_mode = getattr(config.backend, "dp_launch_mode", None)
+    if dp_launch_mode:
+        if dp_launch_mode == "per_node":
+            console.print(
+                "[dim]DP launch:[/] per_node "
+                "(one srun/node, vLLM forks local DP ranks via "
+                "--data-parallel-size-local/--data-parallel-start-rank/--data-parallel-hybrid-lb)"
+            )
+        else:
+            console.print(f"[dim]DP launch:[/] {dp_launch_mode} (one srun/GPU, --data-parallel-rank per rank)")
+
 
 def validate_setup(srtctl_source: Path) -> None:
     """Validate that make setup has been run and required binaries exist.

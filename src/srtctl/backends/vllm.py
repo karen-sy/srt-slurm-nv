@@ -97,6 +97,16 @@ class VLLMProtocol:
     # Or global: true (enables for prefill+decode with defaults)
     kv_events_config: bool | dict[str, Any] | None = None
 
+    # DP+EP launch strategy (only relevant when data-parallel-size is set):
+    #   "per_gpu"  (default): one srun per GPU, each rank masked to a single device via
+    #              CUDA_VISIBLE_DEVICES, launched with --data-parallel-rank N.
+    #   "per_node": one srun per node, all node GPUs visible, vLLM forks the local DP ranks
+    #              itself via --data-parallel-size-local / --data-parallel-start-rank /
+    #              --data-parallel-hybrid-lb. Required for MoE backends that allocate a torch
+    #              symmetric-memory buffer (e.g. deep_gemm_mega_moe), which needs each rank on a
+    #              distinct device ordinal. Matches dynamo's canonical dsr1_dep.sh DP+EP launch.
+    dp_launch_mode: str = "per_gpu"
+
     Schema: ClassVar[builtins.type[Schema]] = Schema
 
     # =========================================================================
@@ -284,6 +294,35 @@ class VLLMProtocol:
                         )
                     )
                     current_sys_port += 1
+            elif self.dp_launch_mode == "per_node":
+                # DP+EP per-node launch: one process per node. All node GPUs stay visible
+                # (gpu_indices = the full node set) so CUDA_VISIBLE_DEVICES masking is skipped
+                # and vLLM forks the local DP ranks itself, assigning distinct device ordinals.
+                # build_worker_command emits --data-parallel-size-local/--data-parallel-start-rank.
+                for node_rank, node in enumerate(endpoint.nodes):
+                    is_leader = node_rank == 0
+                    http_port = port_allocator.next_http_port(node) if is_leader else 0
+                    bootstrap_port = (
+                        port_allocator.next_bootstrap_port(node) if endpoint.mode == "prefill" and is_leader else None
+                    )
+                    kv_events_port = port_allocator.next_kv_events_port()
+                    nixl_port = port_allocator.next_nixl_port()
+
+                    processes.append(
+                        Process(
+                            node=node,
+                            gpu_indices=endpoint.gpu_indices,  # full node set -> no CVD masking
+                            sys_port=current_sys_port,
+                            http_port=http_port,
+                            endpoint_mode=endpoint.mode,
+                            endpoint_index=endpoint.index,
+                            node_rank=node_rank,  # node index within endpoint (0 = leader)
+                            bootstrap_port=bootstrap_port,
+                            kv_events_port=kv_events_port,
+                            nixl_port=nixl_port,
+                        )
+                    )
+                    current_sys_port += 1
             else:
                 # DP+EP mode: one process per GPU
                 # Each process gets a single GPU and a unique dp_rank
@@ -392,21 +431,43 @@ class VLLMProtocol:
         is_dp_mode = self._is_dp_mode(mode)
 
         if is_dp_mode:
-            # DP+EP mode: each GPU runs its own process
-            # process.node_rank is the dp_rank (set in endpoints_to_processes)
-            dp_rank = process.node_rank
             dp_rpc_port = config.pop("data-parallel-rpc-port", None) or config.pop("data_parallel_rpc_port", 13345)
 
-            cmd.extend(
-                [
-                    "--data-parallel-rank",
-                    str(dp_rank),
-                    "--data-parallel-address",
-                    leader_ip,
-                    "--data-parallel-rpc-port",
-                    str(dp_rpc_port),
-                ]
-            )
+            if self.dp_launch_mode == "per_node":
+                # Per-node launch: one process per node, vLLM forks the local DP ranks itself.
+                # process.node_rank is the node index within the endpoint; gpu_indices is the
+                # full node set. Matches dynamo's dsr1_dep.sh (--data-parallel-hybrid-lb,
+                # --data-parallel-size-local, --data-parallel-start-rank, no --data-parallel-rank,
+                # no --headless). The dynamo router picks the global dp_rank per request.
+                dp_size_local = len(process.gpu_indices)
+                dp_start_rank = process.node_rank * dp_size_local
+                cmd.extend(
+                    [
+                        "--data-parallel-hybrid-lb",
+                        "--data-parallel-size-local",
+                        str(dp_size_local),
+                        "--data-parallel-start-rank",
+                        str(dp_start_rank),
+                        "--data-parallel-address",
+                        leader_ip,
+                        "--data-parallel-rpc-port",
+                        str(dp_rpc_port),
+                    ]
+                )
+            else:
+                # Per-GPU launch: each GPU runs its own process with a unique dp_rank.
+                # process.node_rank is the dp_rank (set in endpoints_to_processes).
+                dp_rank = process.node_rank
+                cmd.extend(
+                    [
+                        "--data-parallel-rank",
+                        str(dp_rank),
+                        "--data-parallel-address",
+                        leader_ip,
+                        "--data-parallel-rpc-port",
+                        str(dp_rpc_port),
+                    ]
+                )
             # Note: --data-parallel-size is added via _config_to_cli_args from vllm_config
         elif is_multi_node:
             # Standard TP+PP multi-node coordination flags

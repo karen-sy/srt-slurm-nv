@@ -1096,6 +1096,124 @@ class TestVLLMDataParallelMode:
         assert "--node-rank" not in cmd
         assert "--headless" not in cmd
 
+    def test_dp_per_node_creates_one_process_per_node(self):
+        """per_node launch mode creates one process per node with the full node GPU set."""
+        from srtctl.backends import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.topology import Endpoint
+
+        backend = VLLMProtocol(
+            dp_launch_mode="per_node",
+            vllm_config=VLLMServerConfig(
+                decode={"data-parallel-size": 8, "enable-expert-parallel": True},
+            ),
+        )
+
+        # DEP8 decode spanning 2 nodes x 4 GPUs
+        endpoint = Endpoint(
+            mode="decode",
+            index=0,
+            nodes=("node0", "node1"),
+            gpu_indices=frozenset(range(4)),
+            gpus_per_node=4,
+        )
+
+        processes = backend.endpoints_to_processes([endpoint])
+
+        # One process per node (not per GPU)
+        assert len(processes) == 2
+        assert [p.node for p in processes] == ["node0", "node1"]
+        # Full node GPU set on each -> worker_stage skips CUDA_VISIBLE_DEVICES masking
+        for proc in processes:
+            assert proc.gpu_indices == frozenset(range(4))
+        # node_rank is the node index within the endpoint (drives start-rank)
+        assert [p.node_rank for p in processes] == [0, 1]
+
+    def test_dp_per_node_command_flags(self):
+        """per_node command uses hybrid-lb/size-local/start-rank, not per-GPU --data-parallel-rank."""
+        from pathlib import Path
+        from unittest.mock import MagicMock, patch
+
+        from srtctl.backends import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.topology import Process
+
+        backend = VLLMProtocol(
+            dp_launch_mode="per_node",
+            vllm_config=VLLMServerConfig(
+                decode={
+                    "data-parallel-size": 8,
+                    "data-parallel-rpc-port": 29500,
+                    "enable-expert-parallel": True,
+                },
+            ),
+        )
+
+        # Second node of a 2-node DEP8 endpoint: node_rank=1 -> start-rank 4
+        endpoint_processes = [
+            Process(
+                node=node,
+                gpu_indices=frozenset(range(4)),
+                sys_port=8081 + i,
+                http_port=0,
+                endpoint_mode="decode",
+                endpoint_index=0,
+                node_rank=i,
+            )
+            for i, node in enumerate(("node0", "node1"))
+        ]
+        process = endpoint_processes[1]
+
+        mock_runtime = MagicMock()
+        mock_runtime.model_path = Path("/model")
+        mock_runtime.is_hf_model = False
+
+        with patch("srtctl.core.slurm.get_hostname_ip", return_value="10.0.0.1"):
+            cmd = backend.build_worker_command(
+                process=process,
+                endpoint_processes=endpoint_processes,
+                runtime=mock_runtime,
+            )
+
+        # Per-node DP flags
+        assert "--data-parallel-hybrid-lb" in cmd
+        assert "--data-parallel-size-local" in cmd
+        assert cmd[cmd.index("--data-parallel-size-local") + 1] == "4"
+        assert "--data-parallel-start-rank" in cmd
+        assert cmd[cmd.index("--data-parallel-start-rank") + 1] == "4"  # node_rank 1 * 4
+        assert "--data-parallel-address" in cmd
+        assert "10.0.0.1" in cmd
+        assert cmd[cmd.index("--data-parallel-rpc-port") + 1] == "29500"
+        assert "--data-parallel-size" in cmd
+
+        # Must NOT use per-GPU rank flag or TP/headless flags
+        assert "--data-parallel-rank" not in cmd
+        assert "--headless" not in cmd
+        assert "--master-addr" not in cmd
+
+    def test_dp_default_launch_mode_is_per_gpu(self):
+        """Default dp_launch_mode keeps the existing per-GPU behavior unchanged."""
+        from srtctl.backends import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.topology import Endpoint
+
+        backend = VLLMProtocol(
+            vllm_config=VLLMServerConfig(
+                decode={"data-parallel-size": 8, "enable-expert-parallel": True},
+            ),
+        )
+        assert backend.dp_launch_mode == "per_gpu"
+
+        endpoint = Endpoint(
+            mode="decode",
+            index=0,
+            nodes=("node0", "node1"),
+            gpu_indices=frozenset(range(4)),
+            gpus_per_node=4,
+        )
+        processes = backend.endpoints_to_processes([endpoint])
+        # Per-GPU: 8 processes, one GPU each
+        assert len(processes) == 8
+        for proc in processes:
+            assert len(proc.gpu_indices) == 1
+
     def test_standard_tp_mode_still_works(self):
         """Test that standard TP mode (no DP) still creates per-node processes."""
         from srtctl.backends import VLLMProtocol, VLLMServerConfig
