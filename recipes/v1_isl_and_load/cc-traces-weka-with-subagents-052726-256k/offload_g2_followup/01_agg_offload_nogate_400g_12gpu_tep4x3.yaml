@@ -1,0 +1,106 @@
+# P1 from offload_g2_probe_recap.md:
+# clone 2209688, change only G2 capacity from 120GiB to nominal 400GiB.
+#
+# Matched references:
+# - agg tep4x3 no-offload c96: 2130303
+# - agg tep4x3 eager offload 120GiB c96: 2209688
+name: offload_g2_followup_agg_offload_nogate_400g_12gpu_tep4x3
+
+identity:
+  model:
+    repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
+  frameworks:
+    dynamo: 1.2.0
+    vllm: 0.21.0+cu129
+
+model:
+  path: qwen3-235b-a22b-instruct-2507-nvfp4
+  container: dyn-123-vllm-0240-versionbump-and-g2-metrics
+  precision: fp4
+
+resources:
+  gpu_type: gb200
+  agg_nodes: 3
+  agg_workers: 3
+  gpus_per_agg: 4
+  gpus_per_node: 4
+
+slurm:
+  time_limit: "00:45:00"
+
+backend:
+  type: vllm
+  kv_events_config:
+    aggregated: true
+  aggregated_environment:
+    OTEL_SERVICE_NAME: "dynamo-agg-offload-g2-400g-tep4x3"
+    OTEL_EXPORT_ENABLED: "true"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
+    VLLM_USE_FLASHINFER_MOE_FP4: "1"
+    DYN_TOOL_CALL_PARSER: hermes
+    DYN_REASONING_PARSER: qwen3
+  vllm_config:
+    aggregated:
+      tensor-parallel-size: 4
+      enable-expert-parallel: true
+      gpu-memory-utilization: 0.85
+      max-model-len: 262144
+      block-size: 64
+      max-num-batched-tokens: 32768
+      enable-prefix-caching: true
+      kv-cache-metrics: true
+      kv-cache-dtype: fp8
+      # 400GiB G2 capacity, store_threshold=0 keeps the eager write-through stress case.
+      kv-transfer-config: '{"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":429496729600,"store_threshold":0,"eviction_policy":"lru","offload_prompt_only":true}}'
+      trust-remote-code: true
+      otlp-traces-endpoint: "http://10.57.209.4:4317"
+
+frontend:
+  type: dynamo
+  args:
+    router-mode: kv
+    router-reset-states: true
+  enable_multiple_frontends: false
+  env:
+    OTEL_SERVICE_NAME: "dynamo-frontend-agg-offload-g2-400g-tep4x3"
+    OTEL_EXPORT_ENABLED: "true"
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "http://10.57.209.4:4317"
+
+health_check:
+  max_attempts: 500
+  interval_seconds: 10
+
+dynamo:
+  install: false
+
+infra:
+  etcd_nats_dedicated_node: false
+  nats_max_payload_mb: 24
+
+observability:
+  enable_otel: true
+  otel_endpoint: "http://10.57.209.4:4317"
+
+sweep:
+  concurrency: [512, 256, 128, 96]
+
+extra_mount:
+  - "/lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces"
+
+benchmark:
+  type: trace-replay-sa
+  public_dataset: semianalysis_cc_traces_weka_with_subagents_256k
+  num_dataset_entries: 470
+  concurrencies: "{concurrency}"
+  ttft_threshold_ms: 5000
+  itl_threshold_ms: 10
+  aiperf_package: "git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9"
+  aiperf_args:
+    benchmark-duration: 1500
+    benchmark-grace-period: 30
+    request-timeout-seconds: 1200
+    workers-max: 200
+    record-processors: 8
+    profile-export-level: raw
+    concurrency-ramp-duration: 120
+    export-http-trace: true
