@@ -1,0 +1,181 @@
+backend:
+  aggregated_environment: {}
+  connector: nixl
+  decode_environment:
+    DYN_REASONING_PARSER: qwen3
+    DYN_TOOL_CALL_PARSER: hermes
+    NCCL_CUMEM_ENABLE: '1'
+    NCCL_MNNVL_ENABLE: '1'
+    NCCL_NVLS_ENABLE: '1'
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://10.57.209.4:4317
+    OTEL_EXPORT_ENABLED: 'true'
+    OTEL_SERVICE_NAME: dynamo-decode-tep4x2-kv
+    UCX_NET_DEVICES: all
+    VLLM_NIXL_SIDE_CHANNEL_PORT: '5700'
+    VLLM_USE_FLASHINFER_MOE_FP4: '1'
+    VLLM_USE_NCCL_SYMM_MEM: '1'
+  kv_events_config:
+    decode: true
+    prefill: true
+  prefill_environment:
+    DYN_REASONING_PARSER: qwen3
+    DYN_TOOL_CALL_PARSER: hermes
+    NCCL_CUMEM_ENABLE: '1'
+    NCCL_MNNVL_ENABLE: '1'
+    NCCL_NVLS_ENABLE: '1'
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://10.57.209.4:4317
+    OTEL_EXPORT_ENABLED: 'true'
+    OTEL_SERVICE_NAME: dynamo-prefill-tep4x2-kv
+    UCX_NET_DEVICES: all
+    VLLM_NIXL_SIDE_CHANNEL_PORT: '5600'
+    VLLM_USE_FLASHINFER_MOE_FP4: '1'
+    VLLM_USE_NCCL_SYMM_MEM: '1'
+  type: vllm
+  vllm_config:
+    aggregated: null
+    decode:
+      block-size: 64
+      disaggregation-mode: decode
+      enable-expert-parallel: true
+      enable-prefix-caching: true
+      gpu-memory-utilization: 0.85
+      kv-cache-dtype: fp8
+      kv-cache-metrics: true
+      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
+      max-model-len: 262144
+      max-num-batched-tokens: 4352
+      otlp-traces-endpoint: http://10.57.209.4:4317
+      tensor-parallel-size: 2
+      trust-remote-code: true
+    prefill:
+      block-size: 64
+      disaggregation-mode: prefill
+      enable-expert-parallel: true
+      enable-prefix-caching: true
+      gpu-memory-utilization: 0.85
+      kv-cache-dtype: fp8
+      kv-cache-metrics: true
+      kv-transfer-config: '{"kv_connector":"NixlConnector","kv_role":"kv_both"}'
+      max-model-len: 262144
+      max-num-batched-tokens: 32768
+      otlp-traces-endpoint: http://10.57.209.4:4317
+      tensor-parallel-size: 4
+      trust-remote-code: true
+benchmark:
+  aiperf_args:
+    benchmark-duration: 1500
+    benchmark-grace-period: 30
+    concurrency-ramp-duration: 120
+    export-http-trace: true
+    profile-export-level: raw
+    record-processors: 8
+    request-timeout-seconds: 1200
+    workers-max: 200
+  aiperf_package: git+https://github.com/cquil11/aiperf.git@062a5de92c8ac8a0a6dd5d2a7fb9a539a147f3d9
+  categories: null
+  concurrencies: "{concurrency}"
+  concurrency: null
+  custom_tokenizer: null
+  isl: null
+  itl_threshold_ms: 10
+  max_context_length: null
+  max_tokens: null
+  mooncake_workload: null
+  num_dataset_entries: 470
+  num_examples: null
+  num_prompts_mult: null
+  num_requests: null
+  num_shots: null
+  num_threads: null
+  num_warmup_mult: null
+  osl: null
+  prefix_ratios: null
+  public_dataset: semianalysis_cc_traces_weka_with_subagents_256k
+  random_range_ratio: null
+  repeat: null
+  req_rate: inf
+  sweep: null
+  temperature: null
+  top_k: null
+  top_p: null
+  trace_file: null
+  ttft_threshold_ms: 5000
+  type: trace-replay-sa
+  use_chat_template: true
+container_mounts: {}
+dynamo:
+  hash: null
+  install: false
+  top_of_tree: false
+  version: 0.8.0
+enable_config_dump: true
+environment: {}
+extra_mount:
+- /lustre/fsw/coreai_dlfw_dev/karenc/srt-slurm/traces:/traces
+frontend:
+  args:
+    router-mode: kv
+    router-queue-threshold: None
+    router-reset-states: true
+  enable_multiple_frontends: false
+  env:
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://10.57.209.4:4317
+    OTEL_EXPORT_ENABLED: 'true'
+    OTEL_SERVICE_NAME: dynamo-frontend-disagg-tep2x3p-tep4x2d-control
+  nginx_container: nginx:1.27.4
+  num_additional_frontends: 9
+  type: dynamo
+health_check:
+  interval_seconds: 10
+  max_attempts: 500
+identity:
+  frameworks:
+    dynamo: 1.2.0
+    vllm: 0.21.0+cu129
+  model:
+    repo: nvidia/qwen3-235b-a22b-instruct-2507-nvfp4
+    revision: null
+infra:
+  etcd_nats_dedicated_node: false
+  nats_max_payload_mb: 24
+model:
+  container: /lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_121_vllm_0221_condp_kvrouting.sqsh
+  path: /lustre/fsw/coreai_dlfw_dev/karenc/models/Qwen3-235B-A22B-Instruct-2507-NVFP4
+  precision: fp4
+name: disagg_14gpu_tep4x2p_tep2x3d_nooffload_control
+observability:
+  enable_otel: true
+  otel_endpoint: http://10.57.209.4:4317
+output:
+  log_dir: ./outputs/{job_id}/logs
+profiling:
+  aggregated: null
+  benchmark_duration_secs: 300
+  decode: null
+  delay_secs: null
+  duration_secs: null
+  prefill: null
+  type: none
+reporting: null
+resources:
+  agg_nodes: null
+  agg_workers: null
+  decode_nodes: 3
+  decode_workers: 3
+  gpu_type: gb200
+  gpus_per_agg: null
+  gpus_per_decode: 2
+  gpus_per_node: 4
+  gpus_per_prefill: 4
+  prefill_nodes: 2
+  prefill_workers: 2
+sbatch_directives: {}
+setup_script: null
+slurm:
+  account: coreai_dlfw_dev
+  partition: gb200
+  time_limit: 00:45:00
+srun_options: {}
+
+sweep:
+  concurrency: [60, 80, 96, 128, 160]
