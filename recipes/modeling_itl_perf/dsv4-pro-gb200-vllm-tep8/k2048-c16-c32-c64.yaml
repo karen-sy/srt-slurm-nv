@@ -1,0 +1,87 @@
+# Starter P0 recipe. Review model/container aliases and trace mount before launch.
+name: "p0-dsv4-pro-vllm-tep8-k2048"
+
+sweep:
+  mode: zip
+  parameters:
+    concurrency: [16, 32, 64]
+    max_num_seqs: [17, 33, 65]
+    max_num_batched_tokens: [2064, 2080, 2112]
+
+slurm:
+  partition: gb200
+  time_limit: "02:00:00"
+
+extra_mount:
+  - "/localhome/local-karenc/dynamo-workflows/dynamo/disagg/conditional_prefill/theory/artifacts/p0-vllm-penalty/generated:/traces/p0-vllm-penalty"
+
+model:
+  path: "DeepSeek-V4-Pro"
+  container: "dyn-130-vllm-0230-condp-kvrouting-isl-and-load-vllmpull"
+  precision: "fp4"
+
+dynamo:
+  install: false
+
+frontend:
+  type: dynamo
+  enable_multiple_frontends: false
+
+health_check:
+  max_attempts: 540
+  interval_seconds: 10
+
+resources:
+  gpu_type: "gb200"
+  gpus_per_node: 4
+  agg_nodes: 2
+  agg_workers: 1
+  gpus_per_agg: 8
+
+backend:
+  type: vllm
+  connector: null
+
+  aggregated_environment:
+    PYTHONUNBUFFERED: "1"
+    VLLM_ENGINE_READY_TIMEOUT_S: "5400"
+    VLLM_SERVER_DEV_MODE: "1"
+    NCCL_CUMEM_ENABLE: "1"
+    NCCL_MNNVL_ENABLE: "1"
+    NCCL_NVLS_ENABLE: "1"
+    NCCL_P2P_LEVEL: "NVL"
+
+  vllm_config:
+    aggregated:
+      served-model-name: "deepseek-ai/DeepSeek-V4-Pro"
+      trust-remote-code: true
+      kv-cache-dtype: "fp8"
+      block-size: 64
+      enable-prefix-caching: true
+      max-model-len: 131072
+      max-num-seqs: "{max_num_seqs}"
+      max-num-batched-tokens: "{max_num_batched_tokens}"
+      tensor-parallel-size: 8
+      enable-expert-parallel: true
+      tokenizer-mode: deepseek_v4
+      reasoning-parser: deepseek_v4
+      tool-call-parser: deepseek_v4
+      enable-auto-tool-choice: true
+      compilation-config: '{"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}'
+      attention-config: '{"use_fp4_indexer_cache":true}'
+      moe-backend: deep_gemm_mega_moe
+      disable-log-requests: true
+
+benchmark:
+  type: "modeling_itl_perf"
+  trace_file: "/traces/p0-vllm-penalty"
+  isl: 2048
+  concurrencies: "{concurrency}"
+  ttft_threshold_ms: 5000
+  itl_threshold_ms: 25
+  aiperf_package: "git+https://github.com/SemiAnalysisAI/aiperf.git@e3920297890b3532970b672a23561a369eb30c35"
+  aiperf_args:
+    export-http-trace: true
+    profile-export-level: raw
+    request-timeout-seconds: 1200
+    workers-max: 200

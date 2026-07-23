@@ -430,6 +430,72 @@ class TestTraceReplayRunner:
         assert config.benchmark.ttft_threshold_ms == 3000
         assert config.benchmark.itl_threshold_ms == 7
 
+class TestModelingItlPerfRunner:
+    """Test modeling_itl_perf benchmark runner."""
+
+    def test_in_registry(self):
+        """modeling_itl_perf is registered in benchmark list."""
+        benchmarks = list_benchmarks()
+        assert "modeling_itl_perf" in benchmarks
+
+    def test_validate_requires_trace_file_isl_and_concurrencies(self):
+        """Validates required modeling_itl_perf fields."""
+        from srtctl.benchmarks.modeling_itl_perf import ModelingItlPerfRunner
+        from srtctl.core.schema import BenchmarkConfig, ModelConfig, ResourceConfig, SrtConfig
+
+        runner = ModelingItlPerfRunner()
+        config = SrtConfig(
+            name="test",
+            model=ModelConfig(path="/model", container="/image", precision="fp4"),
+            resources=ResourceConfig(gpu_type="gb200"),
+            benchmark=BenchmarkConfig(type="modeling_itl_perf"),
+        )
+        errors = runner.validate_config(config)
+        assert any("trace_file" in e for e in errors)
+        assert any("benchmark.isl" in e for e in errors)
+        assert any("concurrencies" in e for e in errors)
+
+    def test_build_command(self):
+        """Build command includes P0 trace directory and K."""
+        from unittest.mock import MagicMock
+
+        from srtctl.benchmarks.modeling_itl_perf import ModelingItlPerfRunner
+        from srtctl.core.schema import BenchmarkConfig, ModelConfig, ResourceConfig, SrtConfig
+
+        runner = ModelingItlPerfRunner()
+        runtime = MagicMock()
+        runtime.frontend_port = 8000
+        runtime.is_hf_model = False
+
+        config = SrtConfig(
+            name="test",
+            model=ModelConfig(path="/model/dsv4-pro", container="/image", precision="fp4"),
+            resources=ResourceConfig(gpu_type="gb200"),
+            benchmark=BenchmarkConfig(
+                type="modeling_itl_perf",
+                trace_file="/traces/p0-vllm-penalty",
+                isl=2048,
+                concurrencies=[16, 32],
+                ttft_threshold_ms=3000,
+                itl_threshold_ms=10,
+                aiperf_args={"profile-export-level": "raw"},
+            ),
+        )
+
+        cmd = runner.build_command(config, runtime)
+
+        assert cmd[0] == "bash"
+        assert "modeling_itl_perf" in cmd[1]
+        assert cmd[2] == "http://localhost:8000"
+        assert cmd[3] == "dsv4-pro"
+        assert cmd[4] == "/traces/p0-vllm-penalty"
+        assert cmd[5] == "2048"
+        assert cmd[6] == "16,32"
+        assert cmd[7] == "3000"
+        assert cmd[8] == "10"
+        assert cmd[9] == "/model"
+        assert "--profile-export-level" in cmd[10:]
+
 
 class TestTraceReplaySARunner:
     """Test Trace Replay (SA) benchmark runner (aiperf --public-dataset)."""

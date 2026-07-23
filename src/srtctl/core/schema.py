@@ -226,6 +226,7 @@ class BenchmarkType(str, Enum):
     MOONCAKE_ROUTER = "mooncake-router"
     TRACE_REPLAY = "trace-replay"
     TRACE_REPLAY_SA = "trace-replay-sa"
+    MODELING_ITL_PERF = "modeling_itl_perf"
     MMLU = "mmlu"
     GPQA = "gpqa"
     LONGBENCHV2 = "longbenchv2"

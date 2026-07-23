@@ -190,6 +190,45 @@ class TestGenerateSweepConfigs:
         assert {"a": 2, "b": 10} in all_params
         assert {"a": 2, "b": 20} in all_params
 
+    def test_explicit_zip_mode(self):
+        """Test explicit sweep mode zips parameter lists."""
+        config = {
+            "name": "test",
+            "model": {
+                "path": "model",
+                "container": "container.sqsh",
+                "precision": "fp8",
+            },
+            "resources": {
+                "gpu_type": "h100",
+                "prefill_nodes": 1,
+                "decode_nodes": 1,
+            },
+            "backend": {
+                "sglang_config": {
+                    "prefill": {
+                        "val-a": "{a}",
+                        "val-b": "{b}",
+                    },
+                    "decode": {},
+                }
+            },
+            "sweep": {
+                "mode": "zip",
+                "parameters": {
+                    "a": [1, 2],
+                    "b": [10, 20],
+                },
+            },
+        }
+        results = generate_sweep_configs(config)
+
+        assert len(results) == 2
+        assert [r[1] for r in results] == [
+            {"a": 1, "b": 10},
+            {"a": 2, "b": 20},
+        ]
+
     def test_sweep_removes_sweep_section(self):
         """Test that generated configs don't have sweep section."""
         config = {
