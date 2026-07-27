@@ -1,0 +1,102 @@
+# Nsys follow-up for P0 job 2487301. The windows are calibrated from that
+# run's nonzero FPM iteration sequence and intentionally include decode-only
+# steps before and after each target mixed iteration.
+name: "p0-dsv4-pro-vllm-tep8-k2048-c32-nsys"
+
+sweep:
+  mode: zip
+  parameters:
+    target_e: [2048, 4096, 64]
+    profile_start: [4500, 11750, 15900]
+    profile_stop: [4850, 12100, 16250]
+
+slurm:
+  partition: gb200
+  time_limit: "01:30:00"
+
+extra_mount:
+  - "/lustre/fsw/coreai_dlfw_dev/karenc/dynamo-workflows/dynamo/disagg/conditional_prefill/theory/artifacts/p0-vllm-penalty/generated:/traces/p0-vllm-penalty"
+
+model:
+  path: "/lustre/fsw/coreai_dlfw_dev/karenc/models/DeepSeek-V4-Pro"
+  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa.sqsh"
+  precision: fp4
+
+dynamo:
+  install: false
+
+frontend:
+  type: dynamo
+  enable_multiple_frontends: false
+
+health_check:
+  max_attempts: 540
+  interval_seconds: 10
+
+resources:
+  gpu_type: gb200
+  gpus_per_node: 4
+  agg_nodes: 2
+  agg_workers: 1
+  gpus_per_agg: 8
+
+profiling:
+  type: nsys
+  aggregated:
+    start_step: "{profile_start}"
+    stop_step: "{profile_stop}"
+
+backend:
+  type: vllm
+  connector: null
+
+  aggregated_environment:
+    DYN_FPM_MODE: sampled
+    DYN_FPM_OUTPUT_PATH: /logs/dynamo-fpm
+    DYN_FPM_SAMPLE_INTERVAL_MS: "10"
+    DYN_FPM_TRACE: "1"
+    NCCL_CUMEM_ENABLE: "1"
+    NCCL_MNNVL_ENABLE: "1"
+    NCCL_NVLS_ENABLE: "1"
+    NCCL_P2P_LEVEL: NVL
+    PYTHONUNBUFFERED: "1"
+    VLLM_ENGINE_READY_TIMEOUT_S: "5400"
+    VLLM_NVTX_SCOPES_FOR_PROFILING: "1"
+    VLLM_PREFIX_CACHE_RETENTION_INTERVAL: "0"
+    VLLM_SERVER_DEV_MODE: "1"
+    VLLM_USE_NCCL_SYMM_MEM: "1"
+
+  vllm_config:
+    aggregated:
+      attention-config: '{"use_fp4_indexer_cache":true}'
+      block-size: 256
+      compilation-config: '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"],"pass_config":{"fuse_allreduce_rms":true}}'
+      enable-expert-parallel: true
+      enable-prefix-caching: true
+      gpu-memory-utilization: 0.9
+      kv-cache-dtype: fp8
+      kv-cache-metrics: true
+      max-model-len: 131072
+      max-num-batched-tokens: 2080
+      max-num-seqs: 33
+      moe-backend: deep_gemm_mega_moe
+      no-enable-flashinfer-autotune: true
+      reasoning-parser: deepseek_v4
+      served-model-name: deepseek-ai/DeepSeek-V4-Pro
+      tensor-parallel-size: 8
+      tokenizer-mode: deepseek_v4
+      trust-remote-code: true
+
+benchmark:
+  type: modeling_itl_perf
+  trace_file: /traces/p0-vllm-penalty
+  isl: 2048
+  concurrencies: "32"
+  aiperf_package: "git+https://github.com/SemiAnalysisAI/aiperf.git@e3920297890b3532970b672a23561a369eb30c35"
+  aiperf_args:
+    benchmark-duration: 2700
+    benchmark-grace-period: 30
+    export-http-trace: true
+    profile-export-level: raw
+    request-timeout-seconds: 1200
+    workers-max: 200

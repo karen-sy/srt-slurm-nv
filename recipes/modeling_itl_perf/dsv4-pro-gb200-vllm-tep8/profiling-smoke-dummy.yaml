@@ -1,0 +1,76 @@
+# Fast lifecycle check for iteration-bounded Nsys profiling. This proves that
+# vLLM continues serving after automatic profile stop and that the wrapped TP8
+# worker can be cleaned up cleanly so Nsys finalizes its report.
+name: "p0-dsv4-pro-vllm-tep8-nsys-smoke-dummy"
+
+slurm:
+  partition: gb200
+  time_limit: "00:30:00"
+
+model:
+  path: "/lustre/fsw/coreai_dlfw_dev/karenc/models/DeepSeek-V4-Pro"
+  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa.sqsh"
+  precision: fp4
+
+dynamo:
+  install: false
+
+frontend:
+  type: dynamo
+  enable_multiple_frontends: false
+
+health_check:
+  max_attempts: 180
+  interval_seconds: 10
+
+resources:
+  gpu_type: gb200
+  gpus_per_node: 4
+  agg_nodes: 2
+  agg_workers: 1
+  gpus_per_agg: 8
+
+profiling:
+  type: nsys
+  aggregated:
+    start_step: 2
+    stop_step: 8
+
+backend:
+  type: vllm
+  connector: null
+
+  aggregated_environment:
+    NCCL_CUMEM_ENABLE: "1"
+    NCCL_MNNVL_ENABLE: "1"
+    NCCL_NVLS_ENABLE: "1"
+    NCCL_P2P_LEVEL: NVL
+    PYTHONUNBUFFERED: "1"
+    VLLM_ENGINE_READY_TIMEOUT_S: "1800"
+    VLLM_NVTX_SCOPES_FOR_PROFILING: "1"
+    VLLM_SERVER_DEV_MODE: "1"
+    VLLM_USE_NCCL_SYMM_MEM: "1"
+
+  vllm_config:
+    aggregated:
+      attention-config: '{"use_fp4_indexer_cache":true}'
+      block-size: 256
+      compilation-config: '{"mode":3,"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"],"pass_config":{"fuse_allreduce_rms":true}}'
+      enable-expert-parallel: true
+      enable-prefix-caching: true
+      gpu-memory-utilization: 0.8
+      kv-cache-dtype: fp8
+      load-format: dummy
+      max-model-len: 4096
+      max-num-batched-tokens: 1024
+      max-num-seqs: 4
+      moe-backend: deep_gemm_mega_moe
+      no-enable-flashinfer-autotune: true
+      reasoning-parser: deepseek_v4
+      served-model-name: deepseek-ai/DeepSeek-V4-Pro
+      tensor-parallel-size: 8
+      tokenizer-mode: deepseek_v4
+      trust-remote-code: true
+
+benchmark:
+  type: profiling_smoke
