@@ -11,8 +11,8 @@
 # TRACE_DIR_OR_FILE may be either:
 # - a P0 directory containing profile-k${K}-c${C}.jsonl files, whose first
 #   C + 1 rows prime the background and injection lineages; or
-# - a P2 threshold-projection JSONL, whose first C rows prime bounded shadow
-#   lineages.
+# - an Experiment 2 canonical real-CD JSONL, whose first C rows prime stable
+#   base lineages.
 #
 # Warmup rows are excluded from stats. The measured rows intentionally have no
 # timestamp/delay fields; aiperf runs closed-loop by concurrency.
@@ -90,9 +90,9 @@ if [ ! -d "${TRACE_INPUT}" ] && [ ! -f "${TRACE_INPUT}" ]; then
     exit 1
 fi
 
-P2_SINGLE_FILE=0
+SINGLE_TRACE_FILE=0
 if [ -f "${TRACE_INPUT}" ]; then
-    P2_SINGLE_FILE=1
+    SINGLE_TRACE_FILE=1
 fi
 
 AIPERF_SPEC="${AIPERF_PACKAGE:-aiperf}"
@@ -125,7 +125,7 @@ IFS=',' read -r -a CONCURRENCY_LIST <<< "${CONCURRENCIES}"
 start_all_profiling
 
 for C in "${CONCURRENCY_LIST[@]}"; do
-    if [ "${P2_SINGLE_FILE}" -eq 1 ]; then
+    if [ "${SINGLE_TRACE_FILE}" -eq 1 ]; then
         SERVER_CONCURRENCY=${C}
         WARMUP_COUNT=${C}
         RUN_FILES=("threshold:${TRACE_INPUT}")

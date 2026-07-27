@@ -21,7 +21,7 @@ class ModelingItlPerfRunner(AIPerfBenchmarkRunner):
     This benchmark accepts either:
 
     - a P0 trace directory with ``profile-k{K}-c{C}.jsonl`` files; or
-    - one self-contained P2 threshold-projection JSONL.
+    - one self-contained Experiment 2 canonical real-CD JSONL.
 
     Existing BenchmarkConfig fields are reused to avoid P0-specific schema
     churn: benchmark.trace_file is the directory or file, benchmark.isl is K,
