@@ -8,9 +8,12 @@
 #   bench.sh ENDPOINT MODEL_NAME TRACE_DIR K CONCURRENCIES \
 #     [TTFT_THRESHOLD] [ITL_THRESHOLD] [TOKENIZER_PATH] [EXTRA_AIPERF_ARGS...]
 #
-# TRACE_DIR must contain prime.jsonl plus profile-k${K}-c${C}.jsonl files.
-# The trace rows intentionally have no timestamp/delay fields; this script runs
-# closed-loop by concurrency and uses request-count to consume each file once.
+# TRACE_DIR must contain profile-k${K}-c${C}.jsonl files. Each is self-contained:
+# a warmup header of (C + 1) rows (C background lineages + 1 injection prefix),
+# a blank separator, then the measured rows. This script runs one aiperf pass per
+# file with --warmup-request-count so the header primes the KV cache and is
+# excluded from stats; there is no separate prime file. The rows intentionally
+# have no timestamp/delay fields; aiperf runs closed-loop by concurrency.
 
 set -euo pipefail
 
@@ -43,7 +46,6 @@ shift 8 2>/dev/null || true
 EXTRA_ARGS=("$@")
 
 ISL_BLOCK_SIZE="${AIPERF_ISL_BLOCK_SIZE:-64}"
-PRIME_CONCURRENCY="${MODELING_ITL_PERF_PRIME_CONCURRENCY:-1}"
 EXTRA_INJECTION_SLOTS="${MODELING_ITL_PERF_EXTRA_INJECTION_SLOTS:-1}"
 RUN_CADENCE_RAMP="${MODELING_ITL_PERF_RUN_CADENCE_RAMP:-0}"
 
@@ -86,12 +88,6 @@ if [ ! -d "${TRACE_DIR}" ]; then
     exit 1
 fi
 
-PRIME_FILE="${TRACE_DIR}/prime.jsonl"
-if [ ! -f "${PRIME_FILE}" ]; then
-    echo "ERROR: Prime trace not found: ${PRIME_FILE}"
-    exit 1
-fi
-
 AIPERF_SPEC="${AIPERF_PACKAGE:-aiperf}"
 AIPERF_VENV="/tmp/aiperf-${SLURM_JOB_ID:-$$}"
 
@@ -110,112 +106,73 @@ echo "aiperf $(aiperf --version 2>/dev/null || echo 'installed') in ${AIPERF_VEN
 MODEL_BASE_NAME="${MODEL_NAME##*/}"
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 
-PRIME_COUNT=$(wc -l < "${PRIME_FILE}" | tr -d ' ')
-PRIME_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_prime_k${K}_${TIMESTAMP}"
-mkdir -p "${PRIME_DIR}"
-
-echo ""
-echo "=============================================="
-echo "Priming cache"
-echo "=============================================="
-echo "Prime File: ${PRIME_FILE}"
-echo "Prime Requests: ${PRIME_COUNT}"
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting prime run"
-
-aiperf profile \
-    -m "${MODEL_NAME}" \
-    --tokenizer "${TOKENIZER_PATH}" \
-    --tokenizer-trust-remote-code \
-    --input-file "${PRIME_FILE}" \
-    --custom-dataset-type mooncake_trace \
-    --dataset-sampling-strategy sequential \
-    --isl-block-size "${ISL_BLOCK_SIZE}" \
-    --url "${ENDPOINT}" \
-    --endpoint-type chat \
-    --streaming \
-    --extra-inputs ignore_eos:true \
-    --concurrency "${PRIME_CONCURRENCY}" \
-    --request-count "${PRIME_COUNT}" \
-    --random-seed 42 \
-    --ui simple \
-    --artifact-dir "${PRIME_DIR}"
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Prime complete"
+# Each profile-k{K}-c{C}.jsonl is self-contained: it starts with a warmup header
+# of (C + 1) rows (the C background lineages + the injection prefix), a blank
+# separator line, then the measured rows. We run one aiperf invocation per file
+# with --warmup-request-count so the header primes the engine KV cache (shared
+# file => shared trace_id => shared generated content with the measured rows)
+# and is excluded from the reported statistics. There is no separate prime pass.
 
 IFS=',' read -r -a CONCURRENCY_LIST <<< "${CONCURRENCIES}"
 
 start_all_profiling
 
 for C in "${CONCURRENCY_LIST[@]}"; do
-    PROFILE_FILE="${TRACE_DIR}/profile-k${K}-c${C}.jsonl"
-    if [ ! -f "${PROFILE_FILE}" ]; then
-        echo "ERROR: Profile trace not found: ${PROFILE_FILE}"
-        exit 1
-    fi
-
-    REQUEST_COUNT=$(wc -l < "${PROFILE_FILE}" | tr -d ' ')
     SERVER_CONCURRENCY=$((C + EXTRA_INJECTION_SLOTS))
-    RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_k${K}_c${C}_${TIMESTAMP}"
-    mkdir -p "${RUN_ARTIFACT_DIR}"
+    # Warmup header = C background lineages + 1 injection prefix (manifest
+    # warmup_request_count_by_file). aiperf consumes the first WARMUP_COUNT rows
+    # of the file as its warmup phase (shared sequential sampler across phases)
+    # and excludes them from the reported statistics; the header primes the
+    # engine KV cache that the measured rows reuse (same file => same trace_id
+    # => same generated content).
+    WARMUP_COUNT=$((C + 1))
 
-    echo ""
-    echo "=============================================="
-    echo "Running modeling_itl_perf profile: K=${K}, concurrency=${C}"
-    echo "=============================================="
-    echo "Profile File: ${PROFILE_FILE}"
-    echo "Profile Requests: ${REQUEST_COUNT}"
-    echo "AIPerf Concurrency: ${SERVER_CONCURRENCY} (${C} background + ${EXTRA_INJECTION_SLOTS} injection slot)"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting profile"
-
-    aiperf profile \
-        -m "${MODEL_NAME}" \
-        --tokenizer "${TOKENIZER_PATH}" \
-        --tokenizer-trust-remote-code \
-        --input-file "${PROFILE_FILE}" \
-        --custom-dataset-type mooncake_trace \
-        --dataset-sampling-strategy sequential \
-        --isl-block-size "${ISL_BLOCK_SIZE}" \
-        --url "${ENDPOINT}" \
-        --endpoint-type chat \
-        --streaming \
-        --extra-inputs ignore_eos:true \
-        --concurrency "${SERVER_CONCURRENCY}" \
-        --request-count "${REQUEST_COUNT}" \
-        --random-seed 42 \
-        --ui simple \
-        --artifact-dir "${RUN_ARTIFACT_DIR}" \
-        "${SERVER_METRICS_ARGS[@]}" \
-        --goodput "time_to_first_token:${TTFT_THRESHOLD} inter_token_latency:${ITL_THRESHOLD}" \
-        "${EXTRA_ARGS[@]}"
-
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Profile complete: K=${K}, C=${C}"
-    ls -la "${RUN_ARTIFACT_DIR}" 2>/dev/null || true
-
+    # One self-contained file per run. The cadence ramp is just another such
+    # file, appended only when enabled -- no bespoke code path. Slice primary vs
+    # sensitivity vs cadence levels in analysis via metadata.jsonl.
+    RUN_FILES=("profile:${TRACE_DIR}/profile-k${K}-c${C}.jsonl")
     if [[ "${RUN_CADENCE_RAMP}" == "1" || "${RUN_CADENCE_RAMP}" == "true" ]]; then
         RAMP_FILE="${TRACE_DIR}/cadence-ramp-k${K}-c${C}.jsonl"
-        if [ ! -f "${RAMP_FILE}" ]; then
+        if [ -f "${RAMP_FILE}" ]; then
+            RUN_FILES+=("cadence_ramp:${RAMP_FILE}")
+        else
             echo "No cadence-ramp trace for K=${K}, C=${C}; skipping"
-            continue
+        fi
+    fi
+
+    for ENTRY in "${RUN_FILES[@]}"; do
+        KIND="${ENTRY%%:*}"
+        INPUT_FILE="${ENTRY#*:}"
+        if [ ! -f "${INPUT_FILE}" ]; then
+            echo "ERROR: Trace file not found: ${INPUT_FILE}"
+            exit 1
         fi
 
-        RAMP_REQUEST_COUNT=$(wc -l < "${RAMP_FILE}" | tr -d ' ')
-        RAMP_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_cadence_ramp_k${K}_c${C}_${TIMESTAMP}"
-        mkdir -p "${RAMP_ARTIFACT_DIR}"
+        # Blank separator lines are skipped by the loader; count non-blank rows.
+        TOTAL_ROWS=$(grep -cE '[^[:space:]]' "${INPUT_FILE}")
+        REQUEST_COUNT=$((TOTAL_ROWS - WARMUP_COUNT))
+        if [ "${KIND}" = "profile" ]; then
+            RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_k${K}_c${C}_${TIMESTAMP}"
+        else
+            RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_${KIND}_k${K}_c${C}_${TIMESTAMP}"
+        fi
+        mkdir -p "${RUN_ARTIFACT_DIR}"
 
         echo ""
         echo "=============================================="
-        echo "Running modeling_itl_perf cadence ramp: K=${K}, concurrency=${C}"
+        echo "Running modeling_itl_perf ${KIND}: K=${K}, concurrency=${C}"
         echo "=============================================="
-        echo "Ramp File: ${RAMP_FILE}"
-        echo "Ramp Requests: ${RAMP_REQUEST_COUNT}"
+        echo "Input File: ${INPUT_FILE}"
+        echo "Warmup Requests: ${WARMUP_COUNT} (primes KV; excluded from stats by aiperf)"
+        echo "Measured Requests: ${REQUEST_COUNT}"
         echo "AIPerf Concurrency: ${SERVER_CONCURRENCY} (${C} background + ${EXTRA_INJECTION_SLOTS} injection slot)"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting cadence ramp"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting ${KIND}"
 
         aiperf profile \
             -m "${MODEL_NAME}" \
             --tokenizer "${TOKENIZER_PATH}" \
             --tokenizer-trust-remote-code \
-            --input-file "${RAMP_FILE}" \
+            --input-file "${INPUT_FILE}" \
             --custom-dataset-type mooncake_trace \
             --dataset-sampling-strategy sequential \
             --isl-block-size "${ISL_BLOCK_SIZE}" \
@@ -224,17 +181,17 @@ for C in "${CONCURRENCY_LIST[@]}"; do
             --streaming \
             --extra-inputs ignore_eos:true \
             --concurrency "${SERVER_CONCURRENCY}" \
-            --request-count "${RAMP_REQUEST_COUNT}" \
+            --warmup-request-count "${WARMUP_COUNT}" \
+            --request-count "${REQUEST_COUNT}" \
             --random-seed 42 \
             --ui simple \
-            --artifact-dir "${RAMP_ARTIFACT_DIR}" \
+            --artifact-dir "${RUN_ARTIFACT_DIR}" \
             "${SERVER_METRICS_ARGS[@]}" \
-            --goodput "time_to_first_token:${TTFT_THRESHOLD} inter_token_latency:${ITL_THRESHOLD}" \
             "${EXTRA_ARGS[@]}"
 
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - Cadence ramp complete: K=${K}, C=${C}"
-        ls -la "${RAMP_ARTIFACT_DIR}" 2>/dev/null || true
-    fi
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - ${KIND} complete: K=${K}, C=${C}"
+        ls -la "${RUN_ARTIFACT_DIR}" 2>/dev/null || true
+    done
 done
 
 stop_all_profiling
