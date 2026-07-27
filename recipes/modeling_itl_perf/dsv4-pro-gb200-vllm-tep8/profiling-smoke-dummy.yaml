@@ -9,7 +9,7 @@ slurm:
 
 model:
   path: "/lustre/fsw/coreai_dlfw_dev/karenc/models/DeepSeek-V4-Pro"
-  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa.sqsh"
+  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa_nsys.sqsh"
   precision: fp4
 
 dynamo:

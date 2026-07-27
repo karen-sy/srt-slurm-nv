@@ -6,9 +6,9 @@ name: "p0-dsv4-pro-vllm-tep8-k2048-c32-nsys"
 sweep:
   mode: zip
   parameters:
-    target_e: [2048, 4096, 64]
-    profile_start: [4500, 11750, 15900]
-    profile_stop: [4850, 12100, 16250]
+    target_e: [2048, 512, 4096, 64]
+    profile_start: [4500, 5535, 11750, 15900]
+    profile_stop: [4850, 5885, 12100, 16250]
 
 slurm:
   partition: gb200
@@ -19,7 +19,7 @@ extra_mount:
 
 model:
   path: "/lustre/fsw/coreai_dlfw_dev/karenc/models/DeepSeek-V4-Pro"
-  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa.sqsh"
+  container: "/lustre/fsw/coreai_dlfw_dev/karenc/containers/dyn_130_vllm_0251_condp_3d70876faa_nsys.sqsh"
   precision: fp4
 
 dynamo:
