@@ -607,6 +607,18 @@ class ProfilingPhaseConfig:
     start_step: int | None = None  # Step to start profiling
     stop_step: int | None = None  # Step to stop profiling
 
+    @property
+    def vllm_nsys_delay_iterations(self) -> int:
+        """Number of engine iterations vLLM skips after profiling is armed."""
+        return self.start_step or 0
+
+    @property
+    def vllm_nsys_max_iterations(self) -> int:
+        """Number of engine iterations vLLM records with the CUDA profiler."""
+        if self.start_step is None or self.stop_step is None:
+            return 0
+        return max(self.stop_step - self.start_step, 0)
+
     Schema: ClassVar[builtins.type[Schema]] = Schema
 
 
@@ -1106,6 +1118,28 @@ class SrtConfig:
                 )
             if (r.agg_workers or 0) <= 0:
                 raise ValidationError("Aggregated mode requires agg_workers to be > 0.")
+
+        if prof.type == "nsys" and backend_type == "vllm":
+            self._validate_vllm_nsys_profiler_config_not_set()
+
+    def _validate_vllm_nsys_profiler_config_not_set(self):
+        """Keep the profiling block as the single source of the vLLM window."""
+        vllm_cfg = getattr(self.backend, "vllm_config", None)
+        if not vllm_cfg:
+            return
+        for mode_name, cfg in (
+            ("prefill", vllm_cfg.prefill),
+            ("decode", vllm_cfg.decode),
+            ("aggregated", vllm_cfg.aggregated),
+        ):
+            if not cfg:
+                continue
+            conflicts = [key for key in cfg if str(key).replace("_", "-").startswith("profiler-config")]
+            if conflicts:
+                raise ValidationError(
+                    f"vllm_config.{mode_name} sets {conflicts}, but profiler-config "
+                    "is derived from the profiling block when nsys is enabled"
+                )
 
     @classmethod
     def from_yaml(cls, yaml_path: Path) -> "SrtConfig":

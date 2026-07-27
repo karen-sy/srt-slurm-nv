@@ -277,7 +277,14 @@ class BenchmarkStageMixin:
             env["PROFILE_AGG_ENDPOINTS"] = ",".join(agg_endpoints)
 
         # Set profile output directory and common env vars for benchmarks that support profiling
-        if runner.name in ("SA-Bench", "SGLang-Bench", "Trace-Replay-Bench", "Trace-Replay-SA-Bench"):
+        if runner.name in (
+            "SA-Bench",
+            "SGLang-Bench",
+            "Trace-Replay-Bench",
+            "Trace-Replay-SA-Bench",
+            "Modeling-ITL-Perf",
+            "Profiling-Smoke",
+        ):
             env["PROFILE_OUTPUT_DIR"] = profiles_dir_in_container
             env["BENCH_MODEL_NAME"] = self.config.served_model_name
             env["HEAD_NODE"] = self.runtime.nodes.head

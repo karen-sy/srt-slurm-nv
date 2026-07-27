@@ -40,6 +40,8 @@ class TestProfilingConfig:
         assert "nsys" in prefix
         assert "profile" in prefix
         assert "/output/test" in prefix
+        capture_end_index = prefix.index("--capture-range-end")
+        assert prefix[capture_end_index + 1] == "stop"
 
         # Dynamo frontend requires trace-fork-before-exec, sglangrouter does not.
         prefix_dynamo = profiling.get_nsys_prefix("/output/test", frontend_type="dynamo")
@@ -87,6 +89,109 @@ class TestProfilingConfig:
         assert env["PROFILE_TYPE"] == "torch"
         assert env["PROFILE_AGG_START_STEP"] == "0"
         assert env["PROFILE_AGG_STOP_STEP"] == "100"
+
+    def test_vllm_iteration_window_properties(self):
+        from srtctl.core.schema import ProfilingPhaseConfig
+
+        phase = ProfilingPhaseConfig(start_step=10, stop_step=30)
+        assert phase.vllm_nsys_delay_iterations == 10
+        assert phase.vllm_nsys_max_iterations == 20
+        assert ProfilingPhaseConfig().vllm_nsys_max_iterations == 0
+        assert ProfilingPhaseConfig(start_step=30, stop_step=10).vllm_nsys_max_iterations == 0
+
+
+class TestVllmNsysProfilerConfig:
+    @staticmethod
+    def _profiler_config(cmd):
+        import json
+
+        if "--profiler-config" not in cmd:
+            return None
+        return json.loads(cmd[cmd.index("--profiler-config") + 1])
+
+    def _build_decode_cmd(self, profiling, monkeypatch):
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        import srtctl.core.slurm as slurm_mod
+        from srtctl.backends.vllm import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.topology import Process
+
+        monkeypatch.setattr(slurm_mod, "get_hostname_ip", lambda node: "10.0.0.1")
+        backend = VLLMProtocol(vllm_config=VLLMServerConfig(decode={"tensor-parallel-size": 1}))
+        process = Process(
+            node="node0",
+            gpu_indices=frozenset({0}),
+            sys_port=20000,
+            http_port=0,
+            endpoint_mode="decode",
+            endpoint_index=0,
+        )
+        runtime = SimpleNamespace(model_path=Path("/model"), is_hf_model=False)
+        return backend.build_worker_command(
+            process=process,
+            endpoint_processes=[process],
+            runtime=runtime,
+            profiling=profiling,
+        )
+
+    def test_iteration_nsys_injects_profiler_config(self, monkeypatch):
+        from srtctl.core.schema import ProfilingConfig, ProfilingPhaseConfig
+
+        profiling = ProfilingConfig(
+            type="nsys",
+            decode=ProfilingPhaseConfig(start_step=10, stop_step=30),
+        )
+        cmd = self._build_decode_cmd(profiling, monkeypatch)
+        assert self._profiler_config(cmd) == {
+            "profiler": "cuda",
+            "delay_iterations": 10,
+            "max_iterations": 20,
+        }
+
+    def test_no_profiling_does_not_inject_profiler_config(self, monkeypatch):
+        assert self._profiler_config(self._build_decode_cmd(None, monkeypatch)) is None
+
+    def test_control_profile_routes_match_current_dynamo(self):
+        script = (SCRIPTS_DIR / "lib" / "profiling.sh").read_text()
+        assert "/engine/control/start_profile" in script
+        assert "/engine/control/stop_profile" in script
+        assert '--connect-timeout "${PROFILE_CONTROL_CONNECT_TIMEOUT_SECS}"' in script
+        assert '--max-time "${PROFILE_CONTROL_TIMEOUT_SECS}"' in script
+        assert 'start_path="/engine/start_profile"' not in script
+        assert 'stop_path="/engine/stop_profile"' not in script
+
+
+class TestVllmNsysProfilingValidation:
+    def test_rejects_manual_profiler_config(self):
+        from marshmallow import ValidationError
+
+        from srtctl.backends.vllm import VLLMProtocol, VLLMServerConfig
+        from srtctl.core.schema import (
+            ModelConfig,
+            ProfilingConfig,
+            ProfilingPhaseConfig,
+            ResourceConfig,
+            SrtConfig,
+        )
+
+        with pytest.raises(ValidationError, match="profiler-config"):
+            SrtConfig(
+                name="test",
+                model=ModelConfig(path="/model", container="/container", precision="fp8"),
+                resources=ResourceConfig(
+                    gpu_type="h100",
+                    agg_nodes=1,
+                    agg_workers=1,
+                ),
+                backend=VLLMProtocol(
+                    vllm_config=VLLMServerConfig(aggregated={"profiler-config": '{"profiler":"cuda"}'})
+                ),
+                profiling=ProfilingConfig(
+                    type="nsys",
+                    aggregated=ProfilingPhaseConfig(start_step=10, stop_step=30),
+                ),
+            )
 
 
 class TestProfilingValidation:
@@ -236,6 +341,11 @@ class TestProfilingIntegration:
         """There is no dedicated 'profiling' benchmark runner anymore."""
         with pytest.raises(ValueError, match="Unknown benchmark"):
             get_runner("profiling")
+
+    def test_profiling_smoke_runner(self):
+        runner = get_runner("profiling_smoke")
+        assert runner.name == "Profiling-Smoke"
+        assert runner.script_path == "/srtctl-benchmarks/profiling_smoke/bench.sh"
 
     def test_profiling_does_not_override_benchmark_type(self):
         """Profiling is orthogonal to benchmark selection."""

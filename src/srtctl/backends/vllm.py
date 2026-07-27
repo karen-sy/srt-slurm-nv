@@ -27,6 +27,7 @@ from marshmallow_dataclass import dataclass
 if TYPE_CHECKING:
     from srtctl.backends.base import SrunConfig
     from srtctl.core.runtime import RuntimeContext
+    from srtctl.core.schema import ProfilingConfig
     from srtctl.core.topology import Endpoint, Process
 
 # Type alias for worker modes
@@ -366,6 +367,7 @@ class VLLMProtocol:
         frontend_type: str = "dynamo",
         nsys_prefix: list[str] | None = None,
         dump_config_path: Path | None = None,
+        profiling: ProfilingConfig | None = None,
     ) -> list[str]:
         """Build the command to start a vLLM worker process.
 
@@ -376,6 +378,7 @@ class VLLMProtocol:
             frontend_type: Frontend type (currently only "dynamo" supported for vLLM)
             nsys_prefix: Optional nsys profiling command prefix
             dump_config_path: Path to dump config JSON
+            profiling: Profiling config used to derive the vLLM CUDA capture window
         """
         from srtctl.core.slurm import get_hostname_ip
 
@@ -497,6 +500,17 @@ class VLLMProtocol:
             # Add the endpoint with the allocated port
             kv_cfg["endpoint"] = f"tcp://*:{process.kv_events_port}"
             cmd.extend(["--kv-events-config", json.dumps(kv_cfg)])
+
+        if profiling is not None and profiling.is_nsys and not profiling.is_nsys_time:
+            phase = profiling._get_phase_config(mode)
+            if phase is not None and phase.start_step is not None and phase.stop_step is not None:
+                config["profiler-config"] = json.dumps(
+                    {
+                        "profiler": "cuda",
+                        "delay_iterations": phase.vllm_nsys_delay_iterations,
+                        "max_iterations": phase.vllm_nsys_max_iterations,
+                    }
+                )
 
         # Add all config flags from vllm_config
         cmd.extend(_config_to_cli_args(config))

@@ -111,6 +111,7 @@ class WorkerStageMixin:
             frontend_type=self.config.frontend.type,
             nsys_prefix=nsys_prefix,
             dump_config_path=config_dump,
+            profiling=profiling,
         )
 
         # Environment variables
@@ -236,6 +237,7 @@ class WorkerStageMixin:
             frontend_type=self.config.frontend.type,
             nsys_prefix=nsys_prefix,
             dump_config_path=config_dump,
+            profiling=profiling,
         )
 
         # Environment variables

@@ -76,7 +76,7 @@ profiling__start_profile_on_worker() {
 
     local start_path=""
     case "${SRTCTL_FRONTEND_TYPE}" in
-        dynamo) start_path="/engine/start_profile" ;;
+        dynamo) start_path="/engine/control/start_profile" ;;
         sglang) start_path="/start_profile" ;;
         *)
             echo "Error: unsupported SRTCTL_FRONTEND_TYPE='${SRTCTL_FRONTEND_TYPE}' (expected 'dynamo' or 'sglang')" >&2
@@ -84,7 +84,12 @@ profiling__start_profile_on_worker() {
             ;;
     esac
 
-    if curl -sS -f -X POST "http://${hostport}${start_path}" -H "Content-Type: application/json" -d "${payload}" >/dev/null; then
+    if curl -sS -f \
+        --connect-timeout "${PROFILE_CONTROL_CONNECT_TIMEOUT_SECS}" \
+        --max-time "${PROFILE_CONTROL_TIMEOUT_SECS}" \
+        -X POST "http://${hostport}${start_path}" \
+        -H "Content-Type: application/json" \
+        -d "${payload}" >/dev/null; then
         return 0
     fi
     echo "Warning: failed to start profiling on ${hostport}"
@@ -109,7 +114,7 @@ profiling__stop_profile_on_worker() {
 
     local stop_path=""
     case "${SRTCTL_FRONTEND_TYPE}" in
-        dynamo) stop_path="/engine/stop_profile" ;;
+        dynamo) stop_path="/engine/control/stop_profile" ;;
         sglang) stop_path="/stop_profile" ;;
         *)
             echo "Error: unsupported SRTCTL_FRONTEND_TYPE='${SRTCTL_FRONTEND_TYPE}' (expected 'dynamo' or 'sglang')" >&2
@@ -117,7 +122,12 @@ profiling__stop_profile_on_worker() {
             ;;
     esac
 
-    curl -sS -X POST "http://${hostport}${stop_path}" -H "Content-Type: application/json" -d '{}' >/dev/null || true
+    curl -sS \
+        --connect-timeout "${PROFILE_CONTROL_CONNECT_TIMEOUT_SECS}" \
+        --max-time "${PROFILE_CONTROL_TIMEOUT_SECS}" \
+        -X POST "http://${hostport}${stop_path}" \
+        -H "Content-Type: application/json" \
+        -d '{}' >/dev/null || true
     return 0
 }
 
@@ -129,6 +139,8 @@ profiling_init_from_env() {
     PROFILE_AGG_OUTPUT_DIR="${PROFILE_AGG_OUTPUT_DIR:-}"
     WORKER_PORT="${WORKER_PORT:-9090}"
     SRTCTL_FRONTEND_TYPE="${SRTCTL_FRONTEND_TYPE:-${FRONTEND_TYPE:-}}"
+    PROFILE_CONTROL_CONNECT_TIMEOUT_SECS="${PROFILE_CONTROL_CONNECT_TIMEOUT_SECS:-5}"
+    PROFILE_CONTROL_TIMEOUT_SECS="${PROFILE_CONTROL_TIMEOUT_SECS:-30}"
 
     PROFILE_PREFILL_ENDPOINTS="${PROFILE_PREFILL_ENDPOINTS:-${PROFILE_PREFILL_IPS:-}}"
     PROFILE_DECODE_ENDPOINTS="${PROFILE_DECODE_ENDPOINTS:-${PROFILE_DECODE_IPS:-}}"
@@ -254,5 +266,4 @@ stop_all_profiling() {
     echo ""
     return 0
 }
-
 

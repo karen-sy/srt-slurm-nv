@@ -30,6 +30,7 @@ from marshmallow_dataclass import dataclass
 if TYPE_CHECKING:
     from srtctl.backends.base import SrunConfig
     from srtctl.core.runtime import RuntimeContext
+    from srtctl.core.schema import ProfilingConfig
     from srtctl.core.topology import Endpoint, Process
 
 # Type alias for worker modes
@@ -198,6 +199,7 @@ class MockerProtocol:
         frontend_type: str = "dynamo",
         nsys_prefix: list[str] | None = None,
         dump_config_path: Path | None = None,
+        profiling: "ProfilingConfig | None" = None,
     ) -> list[str]:
         """Build the command to start a mocker worker process.
 

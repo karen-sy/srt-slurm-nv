@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from srtctl.core.runtime import RuntimeContext
+    from srtctl.core.schema import ProfilingConfig
     from srtctl.core.topology import Endpoint, Process
 
 
@@ -104,6 +105,7 @@ class BackendProtocol(Protocol):
         frontend_type: str = "dynamo",
         nsys_prefix: list[str] | None = None,
         dump_config_path: Optional["Path"] = None,
+        profiling: Optional["ProfilingConfig"] = None,
     ) -> list[str]:
         """Build command to start a worker process."""
         ...
