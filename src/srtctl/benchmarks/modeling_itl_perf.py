@@ -18,15 +18,14 @@ if TYPE_CHECKING:
 class ModelingItlPerfRunner(AIPerfBenchmarkRunner):
     """Run controlled traces for modeling performance experiments.
 
-    This benchmark expects a generated trace directory containing:
+    This benchmark accepts either:
 
-    - prime.jsonl
-    - profile-k{K}-c{C}.jsonl for each requested concurrency
-    - manifest.json and metadata.jsonl sidecars for analysis
+    - a P0 trace directory with ``profile-k{K}-c{C}.jsonl`` files; or
+    - one self-contained P2 threshold-projection JSONL.
 
     Existing BenchmarkConfig fields are reused to avoid P0-specific schema
-    churn: benchmark.trace_file is the trace directory, benchmark.isl is K, and
-    benchmark.concurrencies selects the profile files to run.
+    churn: benchmark.trace_file is the directory or file, benchmark.isl is K,
+    and benchmark.concurrencies selects the concurrency.
     """
 
     @property

@@ -8,12 +8,14 @@
 #   bench.sh ENDPOINT MODEL_NAME TRACE_DIR K CONCURRENCIES \
 #     [TTFT_THRESHOLD] [ITL_THRESHOLD] [TOKENIZER_PATH] [EXTRA_AIPERF_ARGS...]
 #
-# TRACE_DIR must contain profile-k${K}-c${C}.jsonl files. Each is self-contained:
-# a warmup header of (C + 1) rows (C background lineages + 1 injection prefix),
-# a blank separator, then the measured rows. This script runs one aiperf pass per
-# file with --warmup-request-count so the header primes the KV cache and is
-# excluded from stats; there is no separate prime file. The rows intentionally
-# have no timestamp/delay fields; aiperf runs closed-loop by concurrency.
+# TRACE_DIR_OR_FILE may be either:
+# - a P0 directory containing profile-k${K}-c${C}.jsonl files, whose first
+#   C + 1 rows prime the background and injection lineages; or
+# - a P2 threshold-projection JSONL, whose first C rows prime bounded shadow
+#   lineages.
+#
+# Warmup rows are excluded from stats. The measured rows intentionally have no
+# timestamp/delay fields; aiperf runs closed-loop by concurrency.
 
 set -euo pipefail
 
@@ -36,7 +38,7 @@ export PYTHONUNBUFFERED=1
 
 ENDPOINT=$1
 MODEL_NAME=${2:-"test-model"}
-TRACE_DIR=$3
+TRACE_INPUT=$3
 K=$4
 CONCURRENCIES=${5:-"16,32,64"}
 TTFT_THRESHOLD=${6:-2000}
@@ -70,7 +72,7 @@ echo "Modeling ITL Perf Benchmark (aiperf)"
 echo "=============================================="
 echo "Endpoint: ${ENDPOINT}"
 echo "Model: ${MODEL_NAME}"
-echo "Trace Dir: ${TRACE_DIR}"
+echo "Trace Input: ${TRACE_INPUT}"
 echo "K: ${K}"
 echo "Concurrencies: ${CONCURRENCIES}"
 echo "TTFT Threshold: ${TTFT_THRESHOLD}ms"
@@ -83,9 +85,14 @@ if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
 fi
 echo "=============================================="
 
-if [ ! -d "${TRACE_DIR}" ]; then
-    echo "ERROR: Trace directory not found: ${TRACE_DIR}"
+if [ ! -d "${TRACE_INPUT}" ] && [ ! -f "${TRACE_INPUT}" ]; then
+    echo "ERROR: Trace input not found: ${TRACE_INPUT}"
     exit 1
+fi
+
+P2_SINGLE_FILE=0
+if [ -f "${TRACE_INPUT}" ]; then
+    P2_SINGLE_FILE=1
 fi
 
 AIPERF_SPEC="${AIPERF_PACKAGE:-aiperf}"
@@ -118,25 +125,27 @@ IFS=',' read -r -a CONCURRENCY_LIST <<< "${CONCURRENCIES}"
 start_all_profiling
 
 for C in "${CONCURRENCY_LIST[@]}"; do
-    SERVER_CONCURRENCY=$((C + EXTRA_INJECTION_SLOTS))
-    # Warmup header = C background lineages + 1 injection prefix (manifest
-    # warmup_request_count_by_file). aiperf consumes the first WARMUP_COUNT rows
-    # of the file as its warmup phase (shared sequential sampler across phases)
-    # and excludes them from the reported statistics; the header primes the
-    # engine KV cache that the measured rows reuse (same file => same trace_id
-    # => same generated content).
-    WARMUP_COUNT=$((C + 1))
+    if [ "${P2_SINGLE_FILE}" -eq 1 ]; then
+        SERVER_CONCURRENCY=${C}
+        WARMUP_COUNT=${C}
+        RUN_FILES=("threshold:${TRACE_INPUT}")
+    else
+        SERVER_CONCURRENCY=$((C + EXTRA_INJECTION_SLOTS))
+        # Warmup header = C background lineages + 1 injection prefix (manifest
+        # warmup_request_count_by_file). aiperf consumes the first WARMUP_COUNT
+        # rows as its warmup phase and excludes them from reported statistics.
+        WARMUP_COUNT=$((C + 1))
 
-    # One self-contained file per run. The cadence ramp is just another such
-    # file, appended only when enabled -- no bespoke code path. Slice primary vs
-    # sensitivity vs cadence levels in analysis via metadata.jsonl.
-    RUN_FILES=("profile:${TRACE_DIR}/profile-k${K}-c${C}.jsonl")
-    if [[ "${RUN_CADENCE_RAMP}" == "1" || "${RUN_CADENCE_RAMP}" == "true" ]]; then
-        RAMP_FILE="${TRACE_DIR}/cadence-ramp-k${K}-c${C}.jsonl"
-        if [ -f "${RAMP_FILE}" ]; then
-            RUN_FILES+=("cadence_ramp:${RAMP_FILE}")
-        else
-            echo "No cadence-ramp trace for K=${K}, C=${C}; skipping"
+        # One self-contained file per run. The cadence ramp is just another such
+        # file, appended only when enabled.
+        RUN_FILES=("profile:${TRACE_INPUT}/profile-k${K}-c${C}.jsonl")
+        if [[ "${RUN_CADENCE_RAMP}" == "1" || "${RUN_CADENCE_RAMP}" == "true" ]]; then
+            RAMP_FILE="${TRACE_INPUT}/cadence-ramp-k${K}-c${C}.jsonl"
+            if [ -f "${RAMP_FILE}" ]; then
+                RUN_FILES+=("cadence_ramp:${RAMP_FILE}")
+            else
+                echo "No cadence-ramp trace for K=${K}, C=${C}; skipping"
+            fi
         fi
     fi
 
@@ -151,7 +160,10 @@ for C in "${CONCURRENCY_LIST[@]}"; do
         # Blank separator lines are skipped by the loader; count non-blank rows.
         TOTAL_ROWS=$(grep -cE '[^[:space:]]' "${INPUT_FILE}")
         REQUEST_COUNT=$((TOTAL_ROWS - WARMUP_COUNT))
-        if [ "${KIND}" = "profile" ]; then
+        if [ "${KIND}" = "threshold" ]; then
+            THRESHOLD_NAME=$(basename "${INPUT_FILE}" .jsonl)
+            RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p2_${THRESHOLD_NAME}_${TIMESTAMP}"
+        elif [ "${KIND}" = "profile" ]; then
             RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_k${K}_c${C}_${TIMESTAMP}"
         else
             RUN_ARTIFACT_DIR="${ARTIFACT_DIR}/${MODEL_BASE_NAME}_p0_${KIND}_k${K}_c${C}_${TIMESTAMP}"
@@ -165,7 +177,7 @@ for C in "${CONCURRENCY_LIST[@]}"; do
         echo "Input File: ${INPUT_FILE}"
         echo "Warmup Requests: ${WARMUP_COUNT} (primes KV; excluded from stats by aiperf)"
         echo "Measured Requests: ${REQUEST_COUNT}"
-        echo "AIPerf Concurrency: ${SERVER_CONCURRENCY} (${C} background + ${EXTRA_INJECTION_SLOTS} injection slot)"
+        echo "AIPerf Concurrency: ${SERVER_CONCURRENCY}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting ${KIND}"
 
         aiperf profile \
