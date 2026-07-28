@@ -478,6 +478,7 @@ class TestModelingItlPerfRunner:
                 concurrencies=[16, 32],
                 ttft_threshold_ms=3000,
                 itl_threshold_ms=10,
+                warmup_requests=41,
                 aiperf_args={"profile-export-level": "raw"},
             ),
         )
@@ -494,7 +495,8 @@ class TestModelingItlPerfRunner:
         assert cmd[7] == "3000"
         assert cmd[8] == "10"
         assert cmd[9] == "/model"
-        assert "--profile-export-level" in cmd[10:]
+        assert cmd[10] == "41"
+        assert "--profile-export-level" in cmd[11:]
 
 
 class TestTraceReplaySARunner:

@@ -579,6 +579,7 @@ class BenchmarkConfig:
     num_warmup_mult: int | None = None  # Multiplier for warmup prompts = concurrency * mult (default: 2)
     # Trace replay benchmark fields (uses aiperf with mooncake_trace dataset type)
     trace_file: str | None = None  # Path to trace JSONL file (container path, e.g., /traces/dataset.jsonl)
+    warmup_requests: int | None = None  # Explicit warmup row count for controlled trace benchmarks
     # Trace replay (SA) benchmark fields (uses aiperf with --public-dataset, pulled from HuggingFace)
     public_dataset: str | None = None  # aiperf public-dataset name (e.g. "semianalysis_cc_traces_weka_no_subagents")
     num_dataset_entries: int | None = None  # Cap on traces loaded from corpus; if unset aiperf defaults to 100 (not all)

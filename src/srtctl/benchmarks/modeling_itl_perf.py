@@ -59,6 +59,9 @@ class ModelingItlPerfRunner(AIPerfBenchmarkRunner):
         if b.concurrencies is None:
             errors.append("benchmark.concurrencies is required for modeling_itl_perf")
 
+        if b.warmup_requests is not None and b.warmup_requests <= 0:
+            errors.append("benchmark.warmup_requests must be positive")
+
         return errors
 
     def build_command(
@@ -89,6 +92,7 @@ class ModelingItlPerfRunner(AIPerfBenchmarkRunner):
             str(ttft_threshold),
             str(itl_threshold),
             tokenizer_path,
+            str(b.warmup_requests or ""),
         ]
 
         self.append_aiperf_args(cmd, config)

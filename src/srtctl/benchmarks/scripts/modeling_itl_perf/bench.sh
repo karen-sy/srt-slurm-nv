@@ -6,7 +6,8 @@
 #
 # Usage:
 #   bench.sh ENDPOINT MODEL_NAME TRACE_DIR K CONCURRENCIES \
-#     [TTFT_THRESHOLD] [ITL_THRESHOLD] [TOKENIZER_PATH] [EXTRA_AIPERF_ARGS...]
+#     [TTFT_THRESHOLD] [ITL_THRESHOLD] [TOKENIZER_PATH] [WARMUP_REQUESTS] \
+#     [EXTRA_AIPERF_ARGS...]
 #
 # TRACE_DIR_OR_FILE may be either:
 # - a P0 directory containing profile-k${K}-c${C}.jsonl files, whose first
@@ -44,7 +45,8 @@ CONCURRENCIES=${5:-"16,32,64"}
 TTFT_THRESHOLD=${6:-2000}
 ITL_THRESHOLD=${7:-25}
 TOKENIZER_PATH=${8:-"/model"}
-shift 8 2>/dev/null || true
+WARMUP_REQUESTS=${9:-""}
+shift 9 2>/dev/null || true
 EXTRA_ARGS=("$@")
 
 ISL_BLOCK_SIZE="${AIPERF_ISL_BLOCK_SIZE:-64}"
@@ -134,7 +136,7 @@ for C in "${CONCURRENCY_LIST[@]}"; do
         # Warmup header = C background lineages + 1 injection prefix (manifest
         # warmup_request_count_by_file). aiperf consumes the first WARMUP_COUNT
         # rows as its warmup phase and excludes them from reported statistics.
-        WARMUP_COUNT=$((C + 1))
+        WARMUP_COUNT="${WARMUP_REQUESTS:-$((C + 1))}"
 
         # One self-contained file per run. The cadence ramp is just another such
         # file, appended only when enabled.
